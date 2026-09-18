@@ -1,0 +1,31 @@
+# BojxonaAvatar — production compose (build-on-server, ADR-007 2-usul)
+# Serverda: cd /opt/bojxonaavatar && docker compose -f infra/compose.prod.yml up -d --build
+name: bojxonaavatar
+
+services:
+  backend:
+    build:
+      context: ../backend
+    image: bojxonaavatar-backend:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Prod DB — SQLite volume (soddaroq). Keyin PostgreSQL'ga o'tish mumkin.
+      DATABASE_URL: sqlite:////app/data/app.db
+    volumes:
+      - backend_data:/app/data
+    ports:
+      - "127.0.0.1:8091:8000"      # faqat host nginx uchun
+
+  frontend:
+    build:
+      context: ../frontend
+    image: bojxonaavatar-frontend:local
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8090:80"        # faqat host nginx uchun
+
+volumes:
+  backend_data:

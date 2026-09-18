@@ -1,0 +1,4 @@
+# Shell skriptlar konteynerda LF bo'lishi SHART (Windows CRLF buzadi)
+*.sh text eol=lf
+# GLB binar
+*.glb binary

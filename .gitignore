@@ -1,0 +1,19 @@
+# Python
+**/__pycache__/
+*.pyc
+backend/.venv/
+backend/.env
+backend/*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Deploy sirlari va markerlar
+infra/.env
+infra/.last-deployed
+
+# Avatar manba modeli (71MB — lokalda qoladi, repo'ga kirmaydi).
+# Kerakli avatar.web.glb (49MB) esa frontend/public/ da COMMIT qilinadi.
+model-src/
