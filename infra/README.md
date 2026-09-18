@@ -30,12 +30,14 @@ docker compose -f infra/compose.prod.yml ps
 curl -s http://127.0.0.1:8091/health     # backend
 curl -sI http://127.0.0.1:8090/          # frontend
 
-# 5. Host Nginx + TLS
+# 5. Host Nginx (HTTP) — conf HTTP-only, nginx -t o'tadi
 sudo cp infra/nginx/bojxonaavatar.conf /etc/nginx/sites-available/bojxonaavatar
-#   → server_name va sertifikat yo'lini real domenga o'zgartiring
 sudo ln -s /etc/nginx/sites-available/bojxonaavatar /etc/nginx/sites-enabled/
-sudo certbot --nginx -d bojxona.fintech-company.uz      # yoki Cloudflare Origin CA (Full strict)
 sudo nginx -t && sudo systemctl reload nginx
+
+# 5b. TLS — certbot 443/SSL va redirectni AVTOMATIK qo'shadi (DNS domenga to'g'ri bo'lishi shart)
+sudo certbot --nginx -d bojxona.fintech-company.uz
+#   (Cloudflare orqasida bo'lsa: DNS'ni vaqtincha "grey cloud" qiling yoki Cloudflare Origin CA ishlating)
 
 # 6. Auto-deploy poller (cron)
 chmod +x infra/poll-deploy.sh
