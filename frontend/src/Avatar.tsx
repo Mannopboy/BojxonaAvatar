@@ -94,17 +94,11 @@ export function Avatar({
     scene.position.set(-center.x * s, -box.min.y * s, -center.z * s);
   }, [scene]);
 
-  // Salomlashuv: 'Salute' (harbiy salom) — mount'da va har suhbat boshlanganda (greetKey o'zgarsa)
-  useEffect(() => {
-    const clip = names.find((n) => /salute/i.test(n)) || names[0];
-    if (clip && actions[clip]) {
-      const a = actions[clip];
-      a.reset();
-      a.setLoop(THREE.LoopOnce, 1);
-      a.clampWhenFinished = true;
-      a.fadeIn(0.2).play();
-    }
-  }, [actions, names, greetKey]);
+  // ⚠️ 'Salute' animatsiyasi O'CHIRILDI — qo'l ko'tarilganда uniform yengining skin weight'lari
+  // yomon (mesh cho'ziladi, siyan yorug'lik tegib "yirtiq" ko'rinadi). Avatar tabiiy tik turadi
+  // (bind poza — toza). Salomlashuv ovozда qoladi (1-javobда tanishtiradi).
+  // Kelajakda toza salute/nod animatsiyasi topilsa qayta yoqiladi (greetKey shu uchun saqlangan).
+  void greetKey;
 
   const blink = useRef({ next: 2, t: 0, active: false });
 
