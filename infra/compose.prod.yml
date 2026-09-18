@@ -25,7 +25,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:8090:80"        # faqat host nginx uchun
+      - "127.0.0.1:8790:80"        # faqat host nginx uchun (8090 band edi → 8790)
 
 volumes:
   backend_data:

@@ -28,7 +28,7 @@ nano infra/.env          # GEMINI_API_KEY + FRONTEND_ORIGIN (real domen)
 docker compose -f infra/compose.prod.yml up -d --build
 docker compose -f infra/compose.prod.yml ps
 curl -s http://127.0.0.1:8091/health     # backend
-curl -sI http://127.0.0.1:8090/          # frontend
+curl -sI http://127.0.0.1:8790/          # frontend
 
 # 5. Host Nginx (HTTP) — conf HTTP-only, nginx -t o'tadi
 sudo cp infra/nginx/bojxonaavatar.conf /etc/nginx/sites-available/bojxonaavatar
@@ -51,7 +51,7 @@ chmod +x infra/poll-deploy.sh
 | `.env` (kalit) o'zgarishi | Serverda `infra/.env` ni qo'lda tahrirlang + `up -d` |
 
 ## Portlar (bir serverda ko'p sayt bo'lsa — to'qnashuvni tekshiring)
-- frontend: `127.0.0.1:8090`
+- frontend: `127.0.0.1:8790`
 - backend:  `127.0.0.1:8091`
 - ⚠️ Ikkalasi ham faqat `127.0.0.1` — internetga faqat host Nginx (TLS) chiqaradi.
 
