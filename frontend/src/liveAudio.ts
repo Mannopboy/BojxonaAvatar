@@ -30,6 +30,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   const timeBuf = new Uint8Array(analyser.fftSize);
   let sources: AudioBufferSourceNode[] = [];
   let nextTime = 0;
+  let avatarSpeaking = false; // avatar gapirayotganda mikrofon VAD o'chiriladi (echo oldini olish)
 
   function enqueue(int16: Int16Array) {
     const f32 = new Float32Array(int16.length);
@@ -74,18 +75,51 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   const ws = new WebSocket(wsUrl());
   ws.binaryType = "arraybuffer";
 
+  // --- Client-side VAD: gapirish boshi/oxirini aniqlab activity_start/end yuboradi ---
+  let talking = false;
+  let lastVoice = 0;
+  const START_RMS = 0.02; // gapirish boshlanishi (fon shovqinидan yuqori)
+  const HANG_SEC = 0.7; // shuncha sukunatdan keyin "gapirib bo'ldi"
+
   proc.onaudioprocess = (e) => {
     if (ws.readyState !== WebSocket.OPEN) return;
     const f32 = e.inputBuffer.getChannelData(0);
-    const inRate = micCtx.sampleRate;
-    const ratio = inRate / 16000;
-    const outLen = Math.floor(f32.length / ratio);
-    const i16 = new Int16Array(outLen);
-    for (let i = 0; i < outLen; i++) {
-      const s = Math.max(-1, Math.min(1, f32[Math.floor(i * ratio)] || 0));
-      i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    let sum = 0;
+    for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
+    const rms = Math.sqrt(sum / f32.length);
+    const now = performance.now() / 1000;
+
+    // Avatar gapirayotganda foydalanuvchi ovozini e'tiborsiz qoldiramiz (o'zini bo'lmasin)
+    if (avatarSpeaking) {
+      if (talking) {
+        talking = false;
+        try { ws.send(JSON.stringify({ type: "activity_end" })); } catch { /* */ }
+      }
+      return;
     }
-    ws.send(i16.buffer);
+
+    if (rms > START_RMS) {
+      if (!talking) {
+        talking = true;
+        try { ws.send(JSON.stringify({ type: "activity_start" })); } catch { /* */ }
+      }
+      lastVoice = now;
+    }
+
+    if (talking) {
+      const ratio = micCtx.sampleRate / 16000;
+      const outLen = Math.floor(f32.length / ratio);
+      const i16 = new Int16Array(outLen);
+      for (let i = 0; i < outLen; i++) {
+        const s = Math.max(-1, Math.min(1, f32[Math.floor(i * ratio)] || 0));
+        i16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+      ws.send(i16.buffer);
+      if (now - lastVoice > HANG_SEC) {
+        talking = false;
+        try { ws.send(JSON.stringify({ type: "activity_end" })); } catch { /* */ }
+      }
+    }
   };
   src.connect(proc);
   proc.connect(mute);
@@ -123,7 +157,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const rms = Math.sqrt(sum / timeBuf.length);
     const level = Math.min(1, rms * 3.2); // kuchaytirish
     onLevel(level);
-    onState(sources.length > 0 || level > 0.02 ? "speaking" : "listening");
+    avatarSpeaking = sources.length > 0;
+    onState(avatarSpeaking || level > 0.02 ? "speaking" : "listening");
     raf = requestAnimationFrame(loop);
   }
   await playCtx.resume();
