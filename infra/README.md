@@ -41,7 +41,7 @@ sudo certbot --nginx -d bojxona.fintech-company.uz
 
 # 6. Auto-deploy poller (cron)
 chmod +x infra/poll-deploy.sh
-( crontab -l 2>/dev/null; echo "* * * * * flock -n /tmp/bojxona-deploy.lock /opt/bojxonaavatar/infra/poll-deploy.sh >> /var/log/bojxona-deploy.log 2>&1" ) | crontab -
+( crontab -l 2>/dev/null; echo "* * * * * flock -n /tmp/bojxona-deploy.lock /opt/bojxonaavatar/infra/poll-deploy.sh >> /opt/bojxonaavatar/deploy.log 2>&1" ) | crontab -
 ```
 
 ## Kundalik ish
@@ -58,7 +58,7 @@ chmod +x infra/poll-deploy.sh
 ## Loglar / debug
 ```bash
 docker compose -f infra/compose.prod.yml logs -f backend
-tail -f /var/log/bojxona-deploy.log        # poller
+tail -f /opt/bojxonaavatar/deploy.log        # poller
 ```
 
 ## Eslatma

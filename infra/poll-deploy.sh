@@ -3,7 +3,7 @@
 # git'da yangi commit bo'lsa → docker compose up -d --build. Idempotent (marker bilan).
 #
 # Cron (har daqiqa, ustma-ust ishlamasligi uchun flock):
-#   * * * * * flock -n /tmp/bojxona-deploy.lock /opt/bojxonaavatar/infra/poll-deploy.sh >> /var/log/bojxona-deploy.log 2>&1
+#   * * * * * flock -n /tmp/bojxona-deploy.lock /opt/bojxonaavatar/infra/poll-deploy.sh >> /opt/bojxonaavatar/deploy.log 2>&1
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/opt/bojxonaavatar}"

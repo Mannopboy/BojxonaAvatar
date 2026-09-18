@@ -17,3 +17,6 @@ infra/.last-deployed
 # Avatar manba modeli (71MB — lokalda qoladi, repo'ga kirmaydi).
 # Kerakli avatar.web.glb (49MB) esa frontend/public/ da COMMIT qilinadi.
 model-src/
+
+# poller log
+deploy.log
