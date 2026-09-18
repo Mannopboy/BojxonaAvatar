@@ -94,11 +94,12 @@ export function Avatar({
     scene.position.set(-center.x * s, -box.min.y * s, -center.z * s);
   }, [scene]);
 
-  // ⚠️ 'Salute' animatsiyasi O'CHIRILDI — qo'l ko'tarilganда uniform yengining skin weight'lari
-  // yomon (mesh cho'ziladi, siyan yorug'lik tegib "yirtiq" ko'rinadi). Avatar tabiiy tik turadi
-  // (bind poza — toza). Salomlashuv ovozда qoladi (1-javobда tanishtiradi).
-  // Kelajakda toza salute/nod animatsiyasi topilsa qayta yoqiladi (greetKey shu uchun saqlangan).
+  // ⚠️ 'Salute' animatsiyasi O'CHIRILDI (butunlay). Modelning qo'l/armpit riggi yomon —
+  // qo'l ko'tarilganда yeng cho'ziladi, qo'ltiq qismi chiqib ketadi. Avatar tabiiy TIK turadi
+  // (bind poza — toza, sinovdan o'tgan). Salomlashuv ovozда qoladi (1-javobда tanishtiradi).
   void greetKey;
+  void actions;
+  void names;
 
   const blink = useRef({ next: 2, t: 0, active: false });
 

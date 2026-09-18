@@ -69,11 +69,12 @@ export default function App() {
           <directionalLight position={[3, 5, 4]} intensity={2.6} />
           <directionalLight position={[-4, 2, 1]} intensity={0.7} color="#bfe0ff" />
           <spotLight position={[0, 3.2, 3]} angle={0.6} penumbra={1} intensity={14} color="#eaf4ff" />
-          <pointLight position={[0, 1.4, -2.5]} intensity={22} color="#39c6ff" />
+          {/* yumshoq oqish rim — harsh siyan olib tashlandi (ko'k "yirtiq" artefaktни keltirardi) */}
+          <pointLight position={[0, 1.7, -2.2]} intensity={9} color="#dfebff" />
           <Environment resolution={128} frames={1}>
             <Lightformer intensity={2.2} position={[0, 2, 3]} scale={[6, 6, 1]} />
-            <Lightformer intensity={1.4} position={[-4, 1, 2]} scale={[3, 6, 1]} color="#bfe6ff" />
-            <Lightformer intensity={1.4} position={[4, 1, 2]} scale={[3, 6, 1]} color="#ffffff" />
+            <Lightformer intensity={1.3} position={[-4, 1, 2]} scale={[3, 6, 1]} color="#eef4ff" />
+            <Lightformer intensity={1.3} position={[4, 1, 2]} scale={[3, 6, 1]} color="#ffffff" />
           </Environment>
           <Suspense
             fallback={
