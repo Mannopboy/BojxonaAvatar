@@ -3,7 +3,7 @@
 //   scripts/optimize-avatar.mjs orqali teksturalar 1024/webp ga kichraytirilgan).
 // Keraksiz morph'lar render'dan oldin JS'da olib tashlanadi (GPU xotira → context lost oldini oladi).
 // Gapirganda (speaking=true) viseme morph'lar tebranadi → lip-sync. Ko'z pirpiraydi.
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
@@ -18,8 +18,9 @@ const NEEDED = [...MOUTH, ...BLINK];
 
 type MorphRef = { infl: number[]; idx: number };
 
-export function Avatar({ speaking }: { speaking: boolean }) {
+export function Avatar({ levelRef }: { levelRef: MutableRefObject<number> }) {
   const group = useRef<THREE.Group>(null);
+  const smoothOpen = useRef(0);
   const { scene, animations } = useGLTF(MODEL_URL);
   const { actions, names } = useAnimations(animations, group);
 
@@ -104,23 +105,16 @@ export function Avatar({ speaking }: { speaking: boolean }) {
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
 
-    // --- Lip-sync ---
-    let open = 0;
-    if (speaking) {
-      // bir nechta chastota → tabiiy "gapirish" tebranishi
-      const s = 0.35 + 0.28 * Math.sin(t * 12) + 0.16 * Math.sin(t * 7.3 + 1);
-      open = THREE.MathUtils.clamp(s, 0, 0.85);
-      setMorph("V_Open", open);
-      setMorph("V_Lip_Open", open * 0.5);
-      setMorph("V_Wide", 0.15 + 0.15 * Math.sin(t * 5.1));
-      setMorph("V_Tight_O", Math.max(0, 0.2 * Math.sin(t * 9.4)));
-    } else {
-      // og'izni yumshoq yopish
-      for (const n of MOUTH) {
-        const refs = morphs[n];
-        if (refs) for (const r of refs) r.infl[r.idx] = THREE.MathUtils.lerp(r.infl[r.idx], 0, delta * 10);
-      }
-    }
+    // --- Lip-sync: real audio balandligiga qarab (levelRef 0..1) ---
+    const level = levelRef.current || 0;
+    smoothOpen.current = THREE.MathUtils.lerp(smoothOpen.current, level, delta * 18);
+    const open = THREE.MathUtils.clamp(smoothOpen.current * 1.15, 0, 0.9);
+    // og'iz "yopishib qolmasligi" uchun yengil tebranish
+    const jitter = open > 0.04 ? 1 + 0.1 * Math.sin(t * 24) : 1;
+    setMorph("V_Open", open * jitter);
+    setMorph("V_Lip_Open", open * 0.45);
+    setMorph("V_Wide", open * 0.22);
+    setMorph("V_Tight_O", Math.max(0, 0.15 * Math.sin(t * 9) * open));
 
     // --- Ko'z pirpirash ---
     const b = blink.current;

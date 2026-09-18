@@ -67,6 +67,25 @@ body {
   font-size: 14px; backdrop-filter: blur(8px);
 }
 
+/* Jonli ovoz boshqaruvi */
+.controls {
+  padding: 22px 18px 30px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, transparent, rgba(5,7,13,0.92) 40%);
+}
+.talk {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--cyan); color: #041018; font-weight: 700; font-size: 17px;
+  border: none; border-radius: 999px; padding: 15px 32px; cursor: pointer;
+  transition: transform .1s;
+}
+.talk:hover { transform: translateY(-1px); }
+.talk.stop { background: #e0413f; color: #fff; }
+.talk-ic { font-size: 20px; }
+.hint { color: var(--muted); font-size: 14px; text-align: center; max-width: 520px; }
+.livedot { color: #ff5a5a; font-size: 13px; font-weight: 700; letter-spacing: .5px; animation: pulse 1.4s infinite; }
+
 /* Panel */
 .panel {
   padding: 14px 18px 20px;

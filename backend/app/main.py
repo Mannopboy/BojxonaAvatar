@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import router
 from .config import get_settings
 from .db import Base, engine
+from .live import router as live_router
 from .seed import seed
 
 settings = get_settings()
@@ -41,6 +42,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(live_router)  # /ws/live — Gemini Live realtime audio
 
 
 @app.get("/health")

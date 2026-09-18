@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      // Gemini Live real-time audio (WebSocket)
+      "/ws": {
+        target: "ws://127.0.0.1:8000",
+        ws: true,
+      },
     },
   },
 });

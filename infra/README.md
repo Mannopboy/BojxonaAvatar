@@ -34,7 +34,7 @@ curl -sI http://127.0.0.1:8090/          # frontend
 sudo cp infra/nginx/bojxonaavatar.conf /etc/nginx/sites-available/bojxonaavatar
 #   → server_name va sertifikat yo'lini real domenga o'zgartiring
 sudo ln -s /etc/nginx/sites-available/bojxonaavatar /etc/nginx/sites-enabled/
-sudo certbot --nginx -d bojxona.example.uz      # yoki Cloudflare Origin CA (Full strict)
+sudo certbot --nginx -d bojxona.fintech-company.uz      # yoki Cloudflare Origin CA (Full strict)
 sudo nginx -t && sudo systemctl reload nginx
 
 # 6. Auto-deploy poller (cron)
