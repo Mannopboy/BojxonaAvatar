@@ -111,18 +111,20 @@ export function Avatar({
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime;
 
-    // --- Lip-sync: real audio balandligiga qarab (levelRef 0..1) ---
+    // --- Lip-sync: real audio balandligiga qarab, viseme almashinuvi bilan (tabiiy nutq) ---
     const level = levelRef.current || 0;
-    smoothOpen.current = THREE.MathUtils.lerp(smoothOpen.current, level, delta * 18);
-    const open = THREE.MathUtils.clamp(smoothOpen.current * 1.15, 0, 0.9);
-    // og'iz "yopishib qolmasligi" uchun yengil tebranish
-    const jitter = open > 0.04 ? 1 + 0.1 * Math.sin(t * 24) : 1;
-    setMorph("V_Open", open * jitter);
-    setMorph("V_Lip_Open", open * 0.45);
-    setMorph("V_Wide", open * 0.22);
-    setMorph("V_Tight_O", Math.max(0, 0.15 * Math.sin(t * 9) * open));
+    smoothOpen.current = THREE.MathUtils.lerp(smoothOpen.current, level, delta * 22);
+    const o = THREE.MathUtils.clamp(smoothOpen.current * 1.7, 0, 1); // kuchaytirilgan ochilish
+    // vaqt bo'yicha almashinuvchi og'iz shakllari (unli/undosh taqlidi) → jag' + lab birga qimirlaydi
+    const a = (Math.sin(t * 11) + 1) / 2; // 0..1
+    const c = (Math.sin(t * 15.7 + 1.3) + 1) / 2; // 0..1
+    setMorph("V_Open", o * (0.5 + 0.5 * a)); // og'iz/jag' ochilishi
+    setMorph("V_Lip_Open", o * 0.85); // LAB ochilishi (kuchli)
+    setMorph("V_Wide", o * 0.6 * c); // "ee" — lab keng
+    setMorph("V_Tight_O", o * 0.55 * (1 - a)); // "oo" — lab dumaloq
+    setMorph("V_Explosive", o * 0.25 * (1 - c)); // yopiq undosh (p/b/m)
 
-    // --- Ko'z pirpirash ---
+    // --- Ko'z pirpirash (tabiiy: to'liq yumilib-ochilish) ---
     const b = blink.current;
     b.next -= delta;
     if (b.next <= 0 && !b.active) {
@@ -131,18 +133,20 @@ export function Avatar({
     }
     if (b.active) {
       b.t += delta;
-      const v = b.t < 0.07 ? b.t / 0.07 : b.t < 0.15 ? 1 - (b.t - 0.07) / 0.08 : 0;
+      // 0→1→0, ~0.18s (yumilish tez, ochilish biroz sekin)
+      const v = b.t < 0.08 ? b.t / 0.08 : b.t < 0.18 ? 1 - (b.t - 0.08) / 0.1 : 0;
       setMorph("Eye_Blink_L", v);
       setMorph("Eye_Blink_R", v);
-      if (b.t >= 0.15) {
+      if (b.t >= 0.18) {
         b.active = false;
-        b.next = 2.5 + Math.random() * 3;
+        b.next = 2 + Math.random() * 3; // har 2-5 soniyada
       }
     }
 
-    // --- Yengil nafas / tebranish ---
+    // --- Yengil nafas + gapirganda ozgina tebranish (jonli ko'rinish) ---
     if (group.current) {
       group.current.position.y = Math.sin(t * 1.4) * 0.006;
+      group.current.rotation.y = o * 0.03 * Math.sin(t * 2.3);
     }
   });
 
