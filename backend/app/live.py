@@ -37,6 +37,12 @@ SYSTEM_INSTRUCTION = (
 )
 
 
+# Suhbat boshlanганда avatar birinchi bo'lib salomlashib, o'zini tanishtiradi (foydalanuvchi gapirmasa ham).
+# ⚠️ Uzun/formal promptlar native audio modelni JIM o'ylatadi (ovozsiz). Qisqa imperativ ishonchli
+# ishlaydi — model o'zi salomlashib, tanishib, "qanday yordam beray?" deб qo'shadi.
+GREETING_PROMPT = "Salom, o'zingni tanishtir."
+
+
 def _config() -> types.LiveConnectConfig:
     # ⚠️ Native audio model tool (google_search/function) bilan audio o'rniga TEXT qaytaradi —
     # shuning uchun tabiiy ovoz uchun tool ishlatilmaydi; aniqlik system prompt fakt­lariga tayanadi.
@@ -44,6 +50,11 @@ def _config() -> types.LiveConnectConfig:
         response_modalities=["AUDIO"],
         system_instruction=SYSTEM_INSTRUCTION,
         output_audio_transcription=types.AudioTranscriptionConfig(),
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice)
+            )
+        ),
     )
 
 
@@ -60,6 +71,11 @@ async def ws_live(ws: WebSocket):
     try:
         async with client.aio.live.connect(model=LIVE_MODEL, config=_config()) as session:
             await ws.send_text(json.dumps({"type": "ready"}))
+            # Avatar birinchi bo'lib salomlashadi + o'zini tanishtiradi (foydalanuvchi gapirmasa ham)
+            await session.send_client_content(
+                turns=types.Content(role="user", parts=[types.Part(text=GREETING_PROMPT)]),
+                turn_complete=True,
+            )
 
             async def browser_to_gemini():
                 while True:

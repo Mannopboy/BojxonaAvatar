@@ -7,6 +7,7 @@ import { startLive, type LiveHandle, type LiveState } from "./liveAudio";
 export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
   const [error, setError] = useState("");
+  const [greetKey, setGreetKey] = useState(0);
   const levelRef = useRef(0);
   const handleRef = useRef<LiveHandle | null>(null);
 
@@ -15,6 +16,7 @@ export default function App() {
   async function start() {
     setError("");
     setState("connecting");
+    setGreetKey((k) => k + 1); // avatar harbiy salom beradi
     try {
       handleRef.current = await startLive({
         onState: (s) => setState(s),
@@ -80,7 +82,7 @@ export default function App() {
               </Html>
             }
           >
-            <Avatar levelRef={levelRef} />
+            <Avatar levelRef={levelRef} greetKey={greetKey} />
           </Suspense>
           <ContactShadows position={[0, 0.01, 0]} opacity={0.55} scale={4} blur={2.6} far={2} color="#000000" />
           <OrbitControls

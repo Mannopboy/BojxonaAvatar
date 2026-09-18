@@ -18,7 +18,13 @@ const NEEDED = [...MOUTH, ...BLINK];
 
 type MorphRef = { infl: number[]; idx: number };
 
-export function Avatar({ levelRef }: { levelRef: MutableRefObject<number> }) {
+export function Avatar({
+  levelRef,
+  greetKey,
+}: {
+  levelRef: MutableRefObject<number>;
+  greetKey: number;
+}) {
   const group = useRef<THREE.Group>(null);
   const smoothOpen = useRef(0);
   const { scene, animations } = useGLTF(MODEL_URL);
@@ -88,7 +94,7 @@ export function Avatar({ levelRef }: { levelRef: MutableRefObject<number> }) {
     scene.position.set(-center.x * s, -box.min.y * s, -center.z * s);
   }, [scene]);
 
-  // Salomlashuv: 'Salute' animatsiyasi bir marta o'ynaydi
+  // Salomlashuv: 'Salute' (harbiy salom) — mount'da va har suhbat boshlanganda (greetKey o'zgarsa)
   useEffect(() => {
     const clip = names.find((n) => /salute/i.test(n)) || names[0];
     if (clip && actions[clip]) {
@@ -96,9 +102,9 @@ export function Avatar({ levelRef }: { levelRef: MutableRefObject<number> }) {
       a.reset();
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
-      a.play();
+      a.fadeIn(0.2).play();
     }
-  }, [actions, names]);
+  }, [actions, names, greetKey]);
 
   const blink = useRef({ next: 2, t: 0, active: false });
 

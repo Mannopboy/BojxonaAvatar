@@ -8,6 +8,8 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_text_model: str = "gemini-2.5-flash"
+    # Gemini Live ovozi (erkak: Orus/Fenrir/Puck; ayol: Kore/Aoede/Leda)
+    gemini_voice: str = "Orus"
 
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005
