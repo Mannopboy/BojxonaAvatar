@@ -54,7 +54,7 @@ npm run dev            # http://localhost:5173  (/api → backend proxy)
   ```
 - Model 400+ morph target'ga ega; kerakli ~7 tasi (viseme + blink) **brauzerda render'dan oldin**
   qoldiriladi (`src/Avatar.tsx`) — GPU xotira tejaladi, WebGL context lost oldini oladi.
-- Salomlashuv: modeldagi **'Salute'** animatsiyasi bir marta o'ynaydi.
+- Salomlashuv: **'Salute'** bir marta o'ynaydi (fadeIn → 1.5s ushlab turish → fadeOut). Kiyimning 8 ta `CORR_Uniform_Volume_*` morphi **saqlanadi** va klip weights treklari suyak bilan birga ijro etiladi (`src/morphs.ts`; test: `npm test`).
 
 ## Status
 

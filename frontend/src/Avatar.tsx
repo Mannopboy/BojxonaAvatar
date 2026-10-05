@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useAnimations, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
+import { sanitizeClip, stripMorphs } from "./morphs";
 
 const MODEL_URL = "/avatar.web.glb";
 useGLTF.preload(MODEL_URL);
@@ -28,7 +29,6 @@ export function Avatar({
   const group = useRef<THREE.Group>(null);
   const smoothOpen = useRef(0);
   const { scene, animations } = useGLTF(MODEL_URL);
-  const { actions, names } = useAnimations(animations, group);
 
   // GPU xotirani saqlash uchun keraksiz morph'larni render'dan OLDIN olib tashlaymiz
   // (400 morph → GPU morph-teksturasi xotirani portlatadi → WebGL context lost).
@@ -38,32 +38,9 @@ export function Avatar({
     scene.traverse((obj) => {
       const m = obj as THREE.Mesh;
       if (!m.isMesh || !m.morphTargetDictionary || !m.geometry) return;
-      const geo = m.geometry as THREE.BufferGeometry;
 
-      if (!geo.userData.__stripped) {
-        const dict = m.morphTargetDictionary;
-        const keepNames = NEEDED.filter((n) => n in dict);
-        const keepIdx = keepNames.map((n) => dict[n]);
-
-        if (keepNames.length === 0) {
-          geo.morphAttributes = {};
-          m.morphTargetDictionary = {};
-          m.morphTargetInfluences = [];
-        } else {
-          const newAttrs: Record<string, THREE.BufferAttribute[]> = {};
-          for (const key in geo.morphAttributes) {
-            newAttrs[key] = keepIdx
-              .map((i) => geo.morphAttributes[key][i])
-              .filter(Boolean) as THREE.BufferAttribute[];
-          }
-          geo.morphAttributes = newAttrs as any;
-          const newDict: Record<string, number> = {};
-          keepNames.forEach((n, j) => (newDict[n] = j));
-          m.morphTargetDictionary = newDict;
-          m.morphTargetInfluences = keepNames.map(() => 0);
-        }
-        geo.userData.__stripped = true;
-      }
+      // Yuz morphlari (NEEDED) + kiyim CORR_* saqlanadi (Salute klipi boshqaradi)
+      stripMorphs(m, NEEDED);
 
       for (const name of NEEDED) {
         const idx = m.morphTargetDictionary?.[name];
@@ -74,6 +51,13 @@ export function Avatar({
     });
     return map;
   }, [scene]);
+
+  // Morph strip'dan KEYIN klip treklarini tekshiramiz (kiyim CORR_* treklari saqlanadi)
+  const clips = useMemo(
+    () => (void morphs, animations.map((c) => sanitizeClip(c, scene))),
+    [animations, scene, morphs],
+  );
+  const { actions, names } = useAnimations(clips, group);
 
   const setMorph = (name: string, value: number) => {
     const refs = morphs[name];
@@ -94,12 +78,36 @@ export function Avatar({
     scene.position.set(-center.x * s, -box.min.y * s, -center.z * s);
   }, [scene]);
 
-  // ⚠️ 'Salute' animatsiyasi O'CHIRILDI (butunlay). Modelning qo'l/armpit riggi yomon —
-  // qo'l ko'tarilganда yeng cho'ziladi, qo'ltiq qismi chiqib ketadi. Avatar tabiiy TIK turadi
-  // (bind poza — toza, sinovdan o'tgan). Salomlashuv ovozда qoladi (1-javobда tanishtiradi).
-  void greetKey;
-  void actions;
-  void names;
+  // 'Salute': suyak treklari + kiyim CORR_Uniform_Volume_* morph weights bir mixer'da, bir vaqtda.
+  // Klip morph treklari saqlanadi (sanitizeClip faqat indeks mos kelmaganini tashlaydi).
+  // Boshlanishi: fadeIn → ushlab turish (HOLD) → fadeOut → stop() (bone + morph bind holatiga qaytadi).
+  const SALUTE_HOLD = 1.5; // soniya, qo'l ko'tarilgan holatda ushlab turish
+  const SALUTE_FADE = 0.5;
+  const saluteName = useMemo(() => names.find((n) => /salute/i.test(n)), [names]);
+  const saluteClip = useMemo(() => clips.find((a) => a.name === saluteName), [clips, saluteName]);
+
+  useEffect(() => {
+    if (!saluteName || !actions[saluteName] || !saluteClip) return;
+    const action = actions[saluteName]!;
+    action.reset();
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true; // qo'l tugagach ham ko'tarilgan holatda turadi (HOLD)
+    action.fadeIn(0.2).play();
+    const mixer = action.getMixer();
+    let hold: ReturnType<typeof setTimeout> | undefined;
+    const onFinished = (e: any) => {
+      if (e.action !== action) return;
+      hold = setTimeout(() => action.fadeOut(SALUTE_FADE), SALUTE_HOLD * 1000);
+    };
+    mixer.addEventListener("finished", onFinished);
+    return () => {
+      mixer.removeEventListener("finished", onFinished);
+      if (hold) clearTimeout(hold);
+      action.stop(); // qayta boshlanganda / unmount'da bone + morph tiklanadi
+    };
+  }, [actions, saluteName, saluteClip, greetKey]);
+
+  if (import.meta.env.DEV) (window as any).__avatarDebug = { scene, actions, morphs, saluteClip };
 
   const blink = useRef({ next: 2, t: 0, active: false });
 
