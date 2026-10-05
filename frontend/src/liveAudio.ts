@@ -13,6 +13,8 @@ export interface LiveOpts {
   onError: (msg: string) => void;
 }
 
+const PLAY_RATE = 1.2; // ijro tezligi (1 = asl)
+
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${location.host}/ws/live`;
@@ -41,9 +43,10 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     node.buffer = buf;
     node.connect(analyser);
     const now = playCtx.currentTime;
-    if (nextTime < now) nextTime = now + 0.03;
+    // jitter buffer: javob boshida (yoki uzilishdan keyin) biroz oldindan to'plab, so'ng uzluksiz ijro
+    if (nextTime < now) nextTime = now + 0.25;
     node.start(nextTime);
-    nextTime += buf.duration;
+    nextTime += buf.duration / PLAY_RATE;
     node.onended = () => {
       sources = sources.filter((s) => s !== node);
     };
@@ -79,7 +82,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let talking = false;
   let lastVoice = 0;
   const START_RMS = 0.02; // gapirish boshlanishi (fon shovqinидan yuqori)
-  const HANG_SEC = 0.7; // shuncha sukunatdan keyin "gapirib bo'ldi"
+  const HANG_SEC = 1.3; // shuncha sukunatdan keyin "gapirib bo'ldi" (pauzada gapni kesmaslik uchun)
 
   proc.onaudioprocess = (e) => {
     if (ws.readyState !== WebSocket.OPEN) return;

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     gemini_text_model: str = "gemini-2.5-flash"
     # Gemini Live ovozi (erkak: Orus/Fenrir/Puck; ayol: Kore/Aoede/Leda)
     gemini_voice: str = "Orus"
+    live_greeting: bool = True  # ulanishda avatar o'zi salomlashadi
 
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/avatar.tsx","./src/api.ts","./src/liveaudio.ts","./src/main.tsx","./src/morphs.test.ts","./src/morphs.ts","./src/tts.ts","./src/vite-env.d.ts"],"version":"5.9.3"}
