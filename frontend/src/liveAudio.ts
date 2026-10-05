@@ -13,7 +13,7 @@ export interface LiveOpts {
   onError: (msg: string) => void;
 }
 
-const PLAY_RATE = 1.04; // ijro tezligi (1 = asl)
+const PLAY_RATE = 1; // ijro tezligi (1 = asl)
 
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
