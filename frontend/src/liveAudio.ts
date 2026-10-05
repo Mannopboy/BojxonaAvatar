@@ -13,7 +13,7 @@ export interface LiveOpts {
   onError: (msg: string) => void;
 }
 
-const PLAY_RATE = 1.2; // ijro tezligi (1 = asl)
+const PLAY_RATE = 1.08; // ijro tezligi (1 = asl)
 
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -32,6 +32,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   const timeBuf = new Uint8Array(analyser.fftSize);
   let sources: AudioBufferSourceNode[] = [];
   let nextTime = 0;
+  let busy = true; // javob (yoki boshlang'ich salom) tugamaguncha mikrofon VAD yopiq — ikki ovoz aralashmasin
+  let busyUntil = performance.now() / 1000 + 15; // xavfsizlik: turn_complete kelmasa ham 15s dan keyin ochiladi
   let avatarSpeaking = false; // avatar gapirayotganda mikrofon VAD o'chiriladi (echo oldini olish)
 
   function enqueue(int16: Int16Array) {
@@ -93,7 +95,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const now = performance.now() / 1000;
 
     // Avatar gapirayotganda foydalanuvchi ovozini e'tiborsiz qoldiramiz (o'zini bo'lmasin)
-    if (avatarSpeaking) {
+    if (avatarSpeaking || (busy && now < busyUntil)) {
       if (talking) {
         talking = false;
         try { ws.send(JSON.stringify({ type: "activity_end" })); } catch { /* */ }
@@ -139,6 +141,11 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         const m = JSON.parse(ev.data as string);
         if (m.type === "ready") onState("listening");
         else if (m.type === "interrupted") flush();
+        else if (m.type === "turn_complete") {
+          // audio ijrosi tugagach + qisqa pauza (ovoz aks-sadosi mikrofonga tushmasin) mikrofon ochiladi
+          const wait = Math.max(0, nextTime - playCtx.currentTime) + 0.8;
+          busyUntil = performance.now() / 1000 + wait;
+        }
         else if (m.type === "error") onError(m.msg || "xato");
       } catch {
         /* ignore */
