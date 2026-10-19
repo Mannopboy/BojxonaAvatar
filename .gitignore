@@ -14,6 +14,10 @@ frontend/.env
 infra/.env
 infra/.last-deployed
 
+# Vaziyat: ulash sozlamalari va lokal .env (dasturchi tokeni shu yerda bo'lishi mumkin)
+.vaziyat/
+.env
+
 # Avatar manba modeli (71MB — lokalda qoladi, repo'ga kirmaydi).
 # Kerakli avatar.web.glb (49MB) esa frontend/public/ da COMMIT qilinadi.
 model-src/

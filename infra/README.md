@@ -55,6 +55,25 @@ chmod +x infra/poll-deploy.sh
 - backend:  `127.0.0.1:8091`
 - ⚠️ Ikkalasi ham faqat `127.0.0.1` — internetga faqat host Nginx (TLS) chiqaradi.
 
+## Tex. yordam vidjeti (support.gennis.uz, 0-daraja)
+Sayt kodiga tegilmaydi — host Nginx HTML'ga `<script>` qatorini o'zi qo'shadi (`sub_filter`).
+Shablon: `infra/nginx/texyordam.conf.example` (kalit `<KALIT>` — repoga yozilmaydi). Serverda bir marta:
+```bash
+sudo cp /opt/bojxonaavatar/infra/nginx/texyordam.conf.example /etc/nginx/snippets/texyordam.conf
+sudo nano /etc/nginx/snippets/texyordam.conf     # <KALIT> → panelda yaratilgan kalit
+# HTTPS server blokidagi `location /` ichiga:  include snippets/texyordam.conf;
+sudo nginx -t && sudo nginx -s reload
+```
+- Snippet `/etc/nginx/snippets/` da turadi: `poll-deploy.sh` `git reset --hard` qilgani uchun repo ichidagi tahrir yo'qolardi.
+- Saytda login yo'q (kiosk) → markaz loyihasida `anonymous_allowed` **yoqiq** bo'lishi shart, aks holda `403 E_ANON_DISABLED`.
+
+## Vaziyat markazi (situation-tech.gennis.uz, 0-daraja)
+SDK **ishlatilmaydi**: saytda login yo'q, nginx `/api` ni kesgani uchun SDK'ning `/api/vaziyat/*` yo'llari tashqaridan ochilmaydi.
+- Feature ro'yxati — statik `frontend/public/vaziyat.json` (deploydan keyin `/vaziyat.json` da; panel o'zi o'qiydi).
+- Sog'liq tekshiruvi — **`/api/health`** (`/health` frontend `index.html` ni qaytaradi, u backend holatini ko'rsatmaydi).
+- Iframe ruxsati (ixtiyoriy): `infra/nginx/vaziyat.conf.example` → serverda `/etc/nginx/snippets/vaziyat.conf` + `location /` ichida `include`.
+- Yangi imkoniyat qo'shilsa `vaziyat.json` dagi `features[]` ni yangilang (`key` o'zgarmaydi).
+
 ## Loglar / debug
 ```bash
 docker compose -f infra/compose.prod.yml logs -f backend
