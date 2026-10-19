@@ -1,0 +1,21 @@
+# Markaziy tex.yordam vidjeti (0-daraja, kodsiz) — https://support.gennis.uz
+# Sayt kodiga tegilmaydi: host Nginx HTML'ga bitta <script> qatorini o'zi qo'shadi.
+#
+# SERVERDA (bir marta, qo'lda — bu fayl repoda faqat shablon):
+#   sudo cp /opt/bojxonaavatar/infra/nginx/texyordam.conf.example /etc/nginx/snippets/texyordam.conf
+#   sudo nano /etc/nginx/snippets/texyordam.conf      # <KALIT> ni panelda yaratilgan kalitga almashtiring
+#   # so'ng HTTPS (443) server blokidagi `location /` ichiga bitta qator qo'shing:
+#   #     include snippets/texyordam.conf;
+#   sudo nginx -t && sudo nginx -s reload
+#
+# ⚠️ Nega /etc/nginx/snippets, repo ichida emas: poll-deploy.sh har deployda `git reset --hard` qiladi —
+#    repo ichidagi o'zgargan fayl tiklanib, kalit yo'qolardi.
+# ⚠️ Faqat `location /` ga (frontend HTML). `/api/` va `/ws/` ga qo'ymang.
+# ⚠️ `add_header` location ichida server darajasidagi add_header'larni bekor qiladi — HSTS kabi
+#    sarlavhalar `location /` da ham bo'lishi kerak bo'lsa, ularni shu blokka ham yozing.
+
+proxy_set_header Accept-Encoding "";
+sub_filter_once on;
+sub_filter '</head>' '<script src="https://support.gennis.uz/widget/v1.js" data-key="<KALIT>" defer></script></head>';
+add_header Reporting-Endpoints 'texyordam="https://support.gennis.uz/api/v1/browser-reports?key=<KALIT>"' always;
+add_header NEL '{"report_to":"texyordam","max_age":2592000,"include_subdomains":true,"failure_fraction":1.0}' always;

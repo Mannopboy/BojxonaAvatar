@@ -1,0 +1,16 @@
+# Vaziyat markazi (situation-tech.gennis.uz) — iframe ruxsati. IXTIYORIY qattiqlashtirish.
+# Hozir sayt iframe'ni cheklamaydi (X-Frame-Options / CSP yo'q); bu qator uni faqat
+# saytning o'zi va Vaziyat paneli bilan cheklaydi.
+#
+# SERVERDA:
+#   sudo cp /opt/bojxonaavatar/infra/nginx/vaziyat.conf.example /etc/nginx/snippets/vaziyat.conf
+#   # HTTPS server blokidagi `location /` ichida texyordam.conf ostiga qo'shing:
+#   #     include snippets/vaziyat.conf;
+#   sudo nginx -t && sudo nginx -s reload
+#
+# ⚠️ Faqat `location /` ichiga: texyordam.conf shu blokda add_header ishlatgani uchun server
+#    darajasidagi add_header bu blokda ISHLAMAYDI.
+# ⚠️ preview.js / ping.js ni ulamoqchi bo'lsangiz, texyordam.conf dagi sub_filter bilan BITTA
+#    sub_filter '</head>' ga birlashtiring — ikkita alohida '</head>' qoidasi ishonchli emas.
+
+add_header Content-Security-Policy "frame-ancestors 'self' https://situation-tech.gennis.uz" always;

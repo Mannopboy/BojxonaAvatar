@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "key": "bojxona",
+  "name": "BojxonaAvatar — virtual bojxona xodimi",
+  "description": "Bojxona zaliga qo'yiladigan 3D avatar: yo'lovchi bilan Gemini Live orqali jonli ovozli suhbat qiladi.",
+  "stack": ["FastAPI", "SQLAlchemy 2.0", "SQLite", "React 18", "Three.js", "Vite", "Gemini Live", "Docker"],
+  "links": {
+    "repo": "Mannopboy/BojxonaAvatar"
+  },
+  "features": [
+    {"key": "live.voice_chat", "title": "Jonli ovozli suhbat (Gemini Live)", "status": "done", "since": "2026-09-18", "description": "Brauzer mikrofoni orqali backend WebSocket (/ws/live) va Gemini Live; javob ovoz bilan qaytadi."},
+    {"key": "live.manual_vad", "title": "Gapirish boshi va oxirini aniqlash", "status": "done", "since": "2026-09-18", "description": "Brauzer mikrofon balandligidan gapirishni aniqlaydi; 1.3 soniya pauza gapni kesmaydi."},
+    {"key": "live.half_duplex", "title": "Ikki ovoz aralashmaydi", "status": "done", "since": "2026-10-05", "description": "Avatar gapirib bo'lmaguncha mikrofon yopiq, aks-sado uchun 0.8 soniya pauza."},
+    {"key": "live.greeting", "title": "Avatar o'zi salomlashadi", "status": "done", "since": "2026-10-05", "description": "Ulanganda avatar Salute bilan birga o'zini tanishtiradi."},
+    {"key": "live.voice_persona", "title": "Erkak ovoz va rasmiy o'zbekcha uslub", "status": "done", "since": "2026-09-18", "description": "Ovoz Orus (GEMINI_VOICE bilan o'zgaradi); «Siz» murojaati, qisqa 2-4 gapli javob."},
+    {"key": "live.fixed_facts", "title": "3 ta tasdiqlangan fakt", "status": "done", "since": "2026-09-18", "description": "Bojsiz limit, pochta/kuryer va valyuta raqamlari system prompt'da qat'iy berilgan."},
+    {"key": "avatar.3d", "title": "3D avatar (galogramma ko'rinishi)", "status": "done", "since": "2026-09-18", "description": "CC4 uniforma modeli, qora fon va yumshoq yoritish."},
+    {"key": "avatar.lipsync", "title": "Lab harakati (lip-sync)", "status": "done", "since": "2026-09-18", "description": "Og'iz shakllari ijro etilayotgan audio balandligiga qarab o'zgaradi."},
+    {"key": "avatar.blink", "title": "Ko'z pirpirash va nafas", "status": "done", "since": "2026-09-18"},
+    {"key": "avatar.salute", "title": "Salute (harbiy salom) animatsiyasi", "status": "done", "since": "2026-10-05", "description": "Yelka va qo'ltiq deformatsiyasi tuzatilgan (CORR_Uniform_Volume morphlari saqlanadi)."},
+    {"key": "avatar.model_pipeline", "title": "Avatar modelini yengillatish", "status": "done", "since": "2026-09-18", "description": "Teksturalar 1024/webp, keraksiz morphlar brauzerda olib tashlanadi (WebGL context lost oldi olingan)."},
+    {"key": "ui.session_control", "title": "Suhbatni boshlash va tugatish ekrani", "status": "done", "since": "2026-09-18"},
+    {"key": "faq.list", "title": "3 asosiy savol (/faq)", "status": "done", "since": "2026-09-18", "description": "Bazadan beriladi; hozirgi ovozli ekran bu endpointni chaqirmaydi."},
+    {"key": "ask.classifier", "title": "Savolni turkumlash (/avatar/ask)", "status": "done", "since": "2026-09-18", "description": "faq, web yoki redirect; matn endpointi."},
+    {"key": "search.official_grounding", "title": "Rasmiy manbadan qidiruv (/search/official)", "status": "done", "since": "2026-09-18", "description": "Gemini va Google Search, faqat customs.uz, lex.uz, gov.uz; ovozli suhbatga hali ulanmagan."},
+    {"key": "conversation.log", "title": "Suhbat logi", "status": "in_progress", "description": "Matn endpointlari yozadi; jonli ovozli suhbat hali yozmaydi."},
+    {"key": "health.endpoint", "title": "Sog'liq tekshiruvi (/health)", "status": "done", "since": "2026-09-18", "description": "Tashqaridan /api/health orqali ochiladi."},
+    {"key": "deploy.docker", "title": "Docker bilan deploy", "status": "done", "since": "2026-09-18"},
+    {"key": "deploy.auto_poller", "title": "Avto-deploy (git push dan ~1 daqiqada)", "status": "done", "since": "2026-09-18"},
+    {"key": "deploy.https", "title": "HTTPS va wss (mikrofon uchun)", "status": "done", "since": "2026-09-18"},
+    {"key": "support.widget", "title": "Markaziy tex.yordam vidjeti", "status": "in_progress", "description": "Server tomoni ulangan; panelda sinov murojaati kutilmoqda."},
+    {"key": "kiosk.desktop_app", "title": "Desktop kiosk ilova", "status": "planned"},
+    {"key": "kiosk.fullscreen_idle", "title": "To'liq ekran kiosk va idle holatiga qaytish", "status": "planned"},
+    {"key": "hologram.hardware", "title": "Galogramma apparati", "status": "planned", "description": "Apparat turi hali tanlanmagan."},
+    {"key": "live.grounded_answers", "title": "Ovozli suhbatda rasmiy manbadan javob", "status": "planned", "description": "Native audio modelida google_search ovozni to'xtatadi; yechim izlanadi."},
+    {"key": "security.rate_limit", "title": "So'rovlarni cheklash (rate limit)", "status": "planned"},
+    {"key": "security.prompt_injection", "title": "Prompt injection himoyasi", "status": "planned"},
+    {"key": "stats.popular_questions", "title": "Ko'p beriladigan savollar statistikasi", "status": "planned"},
+    {"key": "grounding.cache", "title": "Grounding javoblarini keshlash", "status": "planned"}
+  ],
+  "pages": [
+    {"path": "/", "title": "Avatar bilan jonli suhbat", "preview": true}
+  ]
+}
