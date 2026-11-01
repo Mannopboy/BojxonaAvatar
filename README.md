@@ -65,13 +65,23 @@ oldindan berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece 
 
 **Videolarni qayta tayyorlash** (boshqa xodim, kadr yoki sifat o'zgarsa):
 1. Xodimning 1–2 rasmidan old tomondan, to'liq bo'yli, qora fonli start kadr yaratiladi (rasm modeli).
-2. Shu kadrdan 3 ta klip: `idle` va `speaking` (start kadr = oxirgi kadr), `greeting` (shu kadrga qaytadi; salom qo'li). Hammasi ovozsiz, 9:16, 720p.
+2. Shu kadrdan 3 ta klip: `idle` va `speaking` (start kadr = oxirgi kadr), `greeting` (shu kadrga qaytadi; salom qo'li). Hammasi ovozsiz, 9:16, 720p,
+   **bir xil modelda** (Seedance 2.0 Mini): boshqa model rangni boshqacha beradi (kutish klipi gapirishdan farq qilib qolgan edi).
+   `idle` uchun ko'rsatma «butunlay qimirlamay turadi, faqat bir marta ko'z qisadi» (aks holda AI tana va qo'lni qimirlatadi).
    `speaking` uchun ayol ovozli namuna audio (14 s) lab harakati uchun beriladi.
-3. Xom kliplar (`idle_raw.mp4`, `speaking_raw.mp4`, `greeting_raw.mp4`) saytga tayyorlanadi: fon sayt foniga (#05070d) almashtiriladi,
-   loop klipning takroriy oxirgi kadri tashlanadi, mp4 + webm + `idle-poster.jpg` yoziladi:
+3. **Qotirish** — kliplar almashganda sakrash va rang o'zgarishi sezilmasin, bitta model kabi ko'rinsin
+   (`pip install opencv-python numpy`; ffmpeg `PATH` yoki `FFMPEG_PATH`):
    ```bash
    cd frontend
-   FFMPEG_PATH=/yo'l/ffmpeg npm run process:avatar -- <xom-papka>    # ffmpeg: libx264 + libvpx-vp9; chiqish: public/avatar/
+   python scripts/stabilize-avatar-clips.py <xom-papka> <start-kadr.png> <qotirilgan-papka>
+   ```
+   Har kadrning bosh va tana holati start kadrga keltiriladi (tana deyarli qotadi, bosh gapirganda biroz harakat qiladi; ko'z qisish va
+   og'iz saqlanadi), rang-yorqinlik xaritasi start kadrga moslanadi. O'lchangan: kutish va gapirish orasidagi rang farqi
+   (R,G,B) (3.2, 2.3, −2.7) → (0.3, 0.2, 0.3); tana farqi 12 → ~5 daraja.
+4. Xom kliplar (`idle_raw.mp4`, `speaking_raw.mp4`, `greeting_raw.mp4` — qotirilgan papkada) saytga tayyorlanadi: fon sayt foniga (#05070d) almashtiriladi,
+   loop klipning takroriy oxirgi kadri tashlanadi, mp4 + webm + `idle-poster.jpg` yoziladi:
+   ```bash
+   FFMPEG_PATH=/yo'l/ffmpeg npm run process:avatar -- <qotirilgan-papka>    # ffmpeg: libx264 + libvpx-vp9; chiqish: public/avatar/
    ```
    Fon sayt foni bilan **bir xil** bo'lishi shart (`src/styles.css` dagi `--bg`, skriptdagi `BG`), aks holda video chetlari ko'rinadi.
 
