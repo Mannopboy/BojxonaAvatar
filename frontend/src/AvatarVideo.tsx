@@ -1,28 +1,33 @@
 // Avatar — oldindan yozilgan videolar (3D model va three.js saytda yo'q; videolarni `npm run record:avatar` yozadi).
 //
-//   idle     — tinglayotgan avatar, uzluksiz takrorlanadi
-//   speaking — gapirayotgan avatar, uzluksiz takrorlanadi
-//   greeting — salom (Salute), bir marta; ovoz boshlanganda ijro etiladi, tugagach speaking/idle'ga o'tadi
+//   idle     — og'iz yopiq (tinglayotgan avatar yoki gapirish pauzasi), uzluksiz takrorlanadi
+//   speaking — og'iz harakatda, uzluksiz takrorlanadi
+//   greeting — salom (Salute); og'zi Gemini salomining haqiqiy ovoz egri chizig'idan, bir marta
 //
-// Uchala video bir-birining ustida turadi; faol bo'lmagani to'xtatilib BOSHIGA qaytariladi (kadr 0). Shu sababli
-// greeting → idle/speaking va idle → speaking o'tishlarida poza va nafas fazasi mos tushadi (yozib olishda shunday qilingan),
-// o'tish esa 0.2 s xira-o'tish (crossfade) bilan silliqlanadi.
-import { useCallback, useEffect, useRef, useState } from "react";
+// OG'IZ FAQAT OVOZ BOR PAYTDA QIMIRLAYDI: pleyerning HAQIQIY ovoz balandligi (liveAudio level, analyser) o'qiladi.
+// Ovoz bor → speaking, ovoz VOICE_HOLD_MS dan ko'p jim → idle. Shu tariqa so'zlar/jumlalar orasidagi pauzalarda va
+// javob tugagach og'iz yopiladi (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
+//
+// idle va speaking BIRGA yurib turadi (nafas fazasi mos, almashganda faqat og'iz farq qiladi) — almashtirish
+// xira-o'tish (crossfade) bilan, seek/kechikishsiz. Salom paytida ular boshiga qaytarilib to'xtatiladi; salom tugagach
+// ikkalasi 0 dan BIRGA boshlanadi (salom oxiri = idle boshi, yozib olishda shunday qilingan).
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 type Phase = "idle" | "speaking" | "greeting";
 const CLIPS: readonly Phase[] = ["idle", "speaking", "greeting"];
 
-const FADE_MS = 200; // styles.css dagi .avatar-layer.on bilan bir xil
-const SPEAK_HOLD_MS = 400; // gapirish tugagach shuncha kutib idle'ga qaytadi — so'zlar orasidagi pauzada qaltiramasin
-// Salom normal holatda birinchi ovozda boshlanadi. Haqiqiy Gemini Live'da birinchi audio tugmadan ~4.5 s keyin keladi
-// (ulanish ~2 s + model ~2.5 s), shuning uchun zaxira undan ancha keyin — faqat ovoz umuman kelmay qolsa ishlaydi.
-const GREET_FALLBACK_MS = 10_000;
+const FADE_MS = 120; // styles.css dagi .avatar-layer.on bilan bir xil
+const VOICE_ON = 0.04; // ovoz balandligi (0..1) shundan oshsa — ovoz bor (haqiqiy Gemini nutqida pauzada ~0.01 dan past)
+const VOICE_HOLD_MS = 150; // shuncha jim bo'lsa og'iz yopiladi: so'zlar orasidagi qisqa tushishda qaltiramasin
+// Salom normal holatda birinchi ovozda boshlanadi. Haqiqiy Gemini Live'da birinchi audio tugmadan 4–8 s keyin keladi
+// (ulanish ~2 s + model 2–6 s, o'lchangan), shuning uchun zaxira undan ancha keyin — faqat ovoz umuman kelmay qolsa ishlaydi.
+const GREET_FALLBACK_MS = 15_000;
 
 interface Props {
   /** suhbat ketyapti (ulanmoqda / tinglayapti / gapiryapti) */
   active: boolean;
-  /** avatar ovozi hozir eshitilyapti */
-  speaking: boolean;
+  /** pleyerda ijro etilayotgan avatar ovozining balandligi 0..1 (liveAudio dan) */
+  levelRef: MutableRefObject<number>;
   /** har ortishida yangi suhbat boshlanadi va salom kutiladi */
   greetKey: number;
 }
@@ -42,34 +47,41 @@ const park = (v: HTMLVideoElement | null) => {
   }
 };
 
-export function AvatarVideo({ active, speaking, greetKey }: Props) {
+export function AvatarVideo({ active, levelRef, greetKey }: Props) {
   const videos = useRef<Record<Phase, HTMLVideoElement | null>>({ idle: null, speaking: null, greeting: null });
   const phaseRef = useRef<Phase>("idle");
-  const speakingRef = useRef(false);
+  const voiceRef = useRef(false);
   const pendingGreet = useRef(false);
-  const timers = useRef<{ park?: number; hold?: number; greet?: number }>({});
+  const timers = useRef<{ fade?: number; greet?: number }>({});
   const [view, setView] = useState<{ phase: Phase; prev: Phase | null }>({ phase: "idle", prev: null });
 
-  /** Qatlamni almashtiradi: yangisi ustida paydo bo'ladi, eskisi esa xira-o'tish tugagach to'xtatilib boshiga qaytariladi. */
+  /** Qatlamni almashtiradi: yangisi ustida xira-o'tish bilan paydo bo'ladi, eskisi xira-o'tish tugaguncha ko'rinib turadi. */
   const go = useCallback((next: Phase) => {
     const from = phaseRef.current;
     if (from === next) return;
     phaseRef.current = next;
     const v = videos.current;
-    if (next === "greeting" && v.greeting) v.greeting.currentTime = 0;
-    play(v[next]);
+    if (next === "greeting") {
+      if (v.greeting) v.greeting.currentTime = 0;
+      play(v.greeting);
+    } else {
+      // ikkala loop birga yuradi (salomdan keyin to'xtatilgan bo'lsa — ikkalasi 0 dan birga boshlanadi)
+      play(v.idle);
+      play(v.speaking);
+    }
     setView({ phase: next, prev: from });
 
-    window.clearTimeout(timers.current.park);
-    timers.current.park = window.setTimeout(() => {
+    window.clearTimeout(timers.current.fade);
+    timers.current.fade = window.setTimeout(() => {
       setView((s) => ({ ...s, prev: null }));
-      for (const name of CLIPS) if (name !== phaseRef.current) park(v[name]);
-    }, FADE_MS + 60);
+      if (phaseRef.current === "greeting") {
+        park(v.idle); // salom paytida loop'lar boshiga qaytarilib to'xtatiladi — salom oxiriga ulanish uchun
+        park(v.speaking);
+      } else {
+        park(v.greeting);
+      }
+    }, FADE_MS + 40);
   }, []);
-
-  const afterGreeting = useCallback(() => {
-    if (phaseRef.current === "greeting") go(speakingRef.current ? "speaking" : "idle");
-  }, [go]);
 
   const startGreeting = useCallback(() => {
     pendingGreet.current = false;
@@ -77,17 +89,28 @@ export function AvatarVideo({ active, speaking, greetKey }: Props) {
     go("greeting");
   }, [go]);
 
-  // Ovoz boshlandi/tugadi. Salom kutilayotgan bo'lsa — birinchi ovozda boshlanadi (avatar salom bilan birga gapiradi).
+  const afterGreeting = useCallback(() => {
+    if (phaseRef.current === "greeting") go(voiceRef.current ? "speaking" : "idle");
+  }, [go]);
+
+  // Ovoz balandligini kuzatish: ovoz bor/yo'q o'zgarganda videoni almashtiradi.
   useEffect(() => {
-    speakingRef.current = speaking;
-    window.clearTimeout(timers.current.hold);
-    if (speaking) {
-      if (pendingGreet.current) startGreeting();
-      else if (phaseRef.current !== "greeting") go("speaking");
-    } else if (phaseRef.current === "speaking") {
-      timers.current.hold = window.setTimeout(() => go("idle"), SPEAK_HOLD_MS);
-    }
-  }, [speaking, go, startGreeting]);
+    let raf = 0;
+    let lastVoice = -1e9;
+    const tick = () => {
+      const now = performance.now();
+      if (levelRef.current > VOICE_ON) lastVoice = now;
+      const voice = now - lastVoice < VOICE_HOLD_MS;
+      if (voice !== voiceRef.current) {
+        voiceRef.current = voice;
+        if (voice && pendingGreet.current) startGreeting(); // salom kutilayotgan bo'lsa — birinchi ovozda boshlanadi
+        else if (phaseRef.current !== "greeting") go(voice ? "speaking" : "idle"); // salom paytida og'iz videoning o'zida
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [levelRef, go, startGreeting]);
 
   // Yangi suhbat: salom kutiladi (ovoz kelmasa ham GREET_FALLBACK_MS dan keyin ijro etiladi).
   useEffect(() => {
@@ -102,15 +125,13 @@ export function AvatarVideo({ active, speaking, greetKey }: Props) {
     if (active) return;
     pendingGreet.current = false;
     window.clearTimeout(timers.current.greet);
-    window.clearTimeout(timers.current.hold);
     go("idle");
   }, [active, go]);
 
   useEffect(() => {
     const t = timers.current;
     return () => {
-      window.clearTimeout(t.park);
-      window.clearTimeout(t.hold);
+      window.clearTimeout(t.fade);
       window.clearTimeout(t.greet);
     };
   }, []);
@@ -128,7 +149,7 @@ export function AvatarVideo({ active, speaking, greetKey }: Props) {
           playsInline
           preload="auto"
           loop={name !== "greeting"}
-          autoPlay={name === "idle"}
+          autoPlay={name !== "greeting"}
           poster={name === "idle" ? "/avatar/idle-poster.jpg" : undefined}
           disablePictureInPicture
           tabIndex={-1}

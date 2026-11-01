@@ -51,12 +51,14 @@ Sayt 3D modelni **yuklamaydi** — avatar oldindan yozilgan 3 ta video (`fronten
 
 | Video | Qachon | Qanday |
 |-------|--------|--------|
-| `greeting` (6.3 s) | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 4 s dan keyin) | bir marta: Salute + gapirayotgan og'iz |
-| `speaking` (9 s) | avatar ovozi eshitilayotganda | uzluksiz takrorlanadi (loop) |
-| `idle` (4.5 s) | tinglayotganda / suhbat tugaganda | uzluksiz takrorlanadi (loop) |
+| `greeting` (4.2 s) | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) | bir marta: Salute; og'zi Gemini salomining **haqiqiy ovoz egri chizig'idan** |
+| `speaking` (9 s) | **ovoz eshitilayotganda** | uzluksiz gapirish, loop |
+| `idle` (4.5 s) | ovoz yo'q: tinglayotganda, so'zlar/jumlalar orasidagi pauzada, javob tugagach | og'iz yopiq, loop |
 
-O'tishlar 0.2 s xira-o'tish bilan; faol bo'lmagan video boshiga qaytariladi, shuning uchun poza va nafas fazasi mos tushadi (`src/AvatarVideo.tsx`).
-Gapirish tugagach 0.4 s kutiladi (so'zlar orasidagi pauzada video almashmasligi uchun).
+**Og'iz faqat ovoz bor paytda qimirlaydi.** Brauzer pleyerning haqiqiy ovoz balandligini o'lchaydi (`liveAudio` level, `src/AvatarVideo.tsx`):
+ovoz bor → `speaking`, 0.15 s dan ko'p jim → `idle` (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
+`speaking` va `idle` birga yurib turadi (nafas fazasi mos), almashtirish 0.12 s xira-o'tish bilan. Salomdan keyin ikkalasi 0 dan birga boshlanadi
+(salom oxiri = idle boshi). Salom paytida og'iz videoning o'zida (haqiqiy ovoz egri chizig'i: `recorder/greeting-envelope.json`).
 
 **Videolarni qayta yozib olish** (model, kadr yoki og'iz amplitudasi o'zgarsa). Videolar 3D modeldan, brauzerning o'zida
 (WebCodecs) kadrma-kadr **deterministik** render qilinadi — `ffmpeg` kerak emas, faqat Chrome:

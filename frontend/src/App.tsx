@@ -6,6 +6,7 @@ export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
   const [error, setError] = useState("");
   const [greetKey, setGreetKey] = useState(0);
+  const levelRef = useRef(0); // avatar ovozining balandligi — og'iz FAQAT ovoz bor paytda qimirlaydi (AvatarVideo)
   const handleRef = useRef<LiveHandle | null>(null);
 
   const active = state !== "idle" && state !== "stopped" && state !== "error";
@@ -17,7 +18,7 @@ export default function App() {
     try {
       handleRef.current = await startLive({
         onState: (s) => setState(s),
-        onLevel: () => {}, // og'iz harakati endi videoda — audio balandligi kerak emas
+        onLevel: (v) => (levelRef.current = v),
         onError: (msg) => {
           setError(msg);
           setState("error");
@@ -32,6 +33,7 @@ export default function App() {
   function stop() {
     handleRef.current?.stop();
     handleRef.current = null;
+    levelRef.current = 0;
     setState("idle");
   }
 
@@ -58,7 +60,7 @@ export default function App() {
       </header>
 
       <div className="scene">
-        <AvatarVideo active={active} speaking={state === "speaking"} greetKey={greetKey} />
+        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} />
         {status && <div className="status">{status}</div>}
       </div>
 

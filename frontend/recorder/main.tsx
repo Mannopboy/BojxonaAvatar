@@ -60,12 +60,17 @@ createRoot(document.getElementById("root")!).render(
 
 // ---- Node skripti (puppeteer) chaqiradigan API ----
 
-/** Klipni boshlang'ich holatga keltiradi va 3 ta qizdirish kadri chizadi (muhit xaritasi, soyalar). */
+/**
+ * Klipni boshlang'ich holatga keltiradi: 3 ta qizdirish kadri (muhit xaritasi, soyalar).
+ * Loop klipda butun davr oldindan chiziladi: og'iz yumshatish holati davr OXIRIDAGIga teng bo'lib, yoziladigan
+ * birinchi kadr takrorlanganda oxirgi kadrga uzluksiz ulanadi.
+ */
 function prepare(name: ClipName) {
   const spec = buildSpec(name, control.saluteDuration);
   control.spec = spec;
   for (let k = 0; k < 3; k++) control.advance!(0);
   control.smooth = 0;
+  if (spec.loop) for (let i = 0; i < spec.frames; i++) control.advance!(i / FPS);
   return spec;
 }
 
