@@ -8,8 +8,8 @@ class Settings(BaseSettings):
 
     gemini_api_key: str = ""
     gemini_text_model: str = "gemini-2.5-flash"
-    # Gemini Live ovozi (erkak: Orus/Fenrir/Puck; ayol: Kore/Aoede/Leda)
-    gemini_voice: str = "Orus"
+    # Gemini Live ovozi (erkak: Orus/Fenrir/Puck; ayol: Kore/Aoede/Leda). Avatar — ayol xodim, shuning uchun ayol ovozi.
+    gemini_voice: str = "Kore"
     live_greeting: bool = True  # ulanishda avatar o'zi salomlashadi
 
     grounding_enabled: bool = True
