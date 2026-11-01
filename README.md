@@ -42,6 +42,8 @@ cd frontend
 npm install
 npm run dev            # http://localhost:5173  (/api → backend proxy)
 ```
+- Backend boshqa portda bo'lsa (masalan 8000 band): `frontend/.env.local` (git'ga kirmaydi) ga `BACKEND_ORIGIN=http://127.0.0.1:8010` yozing.
+- Windows'da Vite `localhost` (IPv6) da ishlaydi — terminalda chiqqan `localhost:…` manzilini oching (`127.0.0.1` emas).
 
 ## Avatar (video)
 

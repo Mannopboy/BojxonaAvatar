@@ -14,7 +14,9 @@ const CLIPS: readonly Phase[] = ["idle", "speaking", "greeting"];
 
 const FADE_MS = 200; // styles.css dagi .avatar-layer.on bilan bir xil
 const SPEAK_HOLD_MS = 400; // gapirish tugagach shuncha kutib idle'ga qaytadi — so'zlar orasidagi pauzada qaltiramasin
-const GREET_FALLBACK_MS = 4000; // ovoz kelmasa ham salom shuncha vaqtdan keyin boshlanadi
+// Salom normal holatda birinchi ovozda boshlanadi. Haqiqiy Gemini Live'da birinchi audio tugmadan ~4.5 s keyin keladi
+// (ulanish ~2 s + model ~2.5 s), shuning uchun zaxira undan ancha keyin — faqat ovoz umuman kelmay qolsa ishlaydi.
+const GREET_FALLBACK_MS = 10_000;
 
 interface Props {
   /** suhbat ketyapti (ulanmoqda / tinglayapti / gapiryapti) */
