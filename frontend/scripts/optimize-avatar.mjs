@@ -1,8 +1,9 @@
 // Avatar GLB'ni web/kiosk uchun optimallashtirish.
 // Teksturalarni kichraytiradi (1024, webp) + (ixtiyoriy) morph'larni kamaytiradi.
 //
-// Ishlatish (loyihada shu ishlatiladi — morph'lar JS'da strip qilinadi, Avatar.tsx):
-//   KEEP_MORPHS=1 node scripts/optimize-avatar.mjs ../model-src/avatar-original.glb public/avatar.web.glb
+// Ishlatish (loyihada shu ishlatiladi — morph'lar JS'da strip qilinadi, recorder/Avatar.tsx).
+// Natija saytga kirmaydi: u faqat videoga yozib olish uchun (npm run record:avatar):
+//   KEEP_MORPHS=1 node scripts/optimize-avatar.mjs ../model-src/avatar-original.glb recorder/avatar.web.glb
 //
 // KEEP_MORPHS=1 => morph'lar saqlanadi (three yuklaydi; keraksizlari brauzerda olib tashlanadi).
 //   ⚠️ Morph'larni bu skript o'chirsa (KEEP_MORPHS yo'q), gltf-transform bo'sh `targets: []`
@@ -12,7 +13,7 @@ import { prune, dedup, textureCompress } from "@gltf-transform/functions";
 import sharp from "sharp";
 
 const IN = process.argv[2] || "../model-src/avatar-original.glb";
-const OUT = process.argv[3] || "public/avatar.web.glb";
+const OUT = process.argv[3] || "recorder/avatar.web.glb";
 
 // Lip-sync + mimika uchun saqlanadigan morph nomlari (CC4 viseme + blink + smile)
 const KEEP = new Set([

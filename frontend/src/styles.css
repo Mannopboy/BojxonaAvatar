@@ -56,11 +56,18 @@ body {
 }
 .lang button.on { color: #041018; background: var(--cyan); border-color: var(--cyan); font-weight: 600; }
 
-/* Scene */
-.scene { position: relative; min-height: 0; }
-.scene canvas { display: block; }
-.loader { color: var(--cyan-soft); font-size: 15px; letter-spacing: 0.3px; }
+/* Scene — avatar video. Fon video fonining o'zi (#05070d), shunda kvadrat video chetlari sezilmaydi. */
+.scene { position: relative; min-height: 0; background: var(--bg); }
+.avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg); isolation: isolate; }
+.avatar-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; opacity: 0; z-index: 0; pointer-events: none;
+}
+/* Eski qatlam to'liq ko'rinib turadi, yangisi uning ustida xira-o'tish bilan paydo bo'ladi (o'rtada qorayish bo'lmasin) */
+.avatar-layer.prev { opacity: 1; z-index: 1; }
+.avatar-layer.on { opacity: 1; z-index: 2; transition: opacity 200ms linear; } /* AvatarVideo.tsx dagi FADE_MS */
 .status {
+  z-index: 5;
   position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
   background: rgba(6,12,26,0.7); border: 1px solid var(--border);
   color: var(--cyan-soft); padding: 8px 16px; border-radius: 999px;
