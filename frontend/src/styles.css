@@ -56,7 +56,7 @@ body {
 }
 .lang button.on { color: #041018; background: var(--cyan); border-color: var(--cyan); font-weight: 600; }
 
-/* Scene — avatar video. Fon video fonining o'zi (#05070d), shunda kvadrat video chetlari sezilmaydi. */
+/* Scene — avatar video. Video foni sayt foniga (#05070d) tushirilgan (scripts/process-avatar-clips.mjs), shunda video chetlari sezilmaydi. */
 .scene { position: relative; min-height: 0; background: var(--bg); }
 .avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg); isolation: isolate; }
 .avatar-layer {
@@ -68,7 +68,7 @@ body {
 .avatar-layer.on { opacity: 1; z-index: 2; transition: opacity 120ms linear; } /* AvatarVideo.tsx dagi FADE_MS */
 .status {
   z-index: 5;
-  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 16px; left: 16px; /* avatar tik va sahnaning o'rtasida turadi — chap burchakda boshiga tegmaydi */
   background: rgba(6,12,26,0.7); border: 1px solid var(--border);
   color: var(--cyan-soft); padding: 8px 16px; border-radius: 999px;
   font-size: 14px; backdrop-filter: blur(8px);

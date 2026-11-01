@@ -47,21 +47,36 @@ npm run dev            # http://localhost:5173  (/api → backend proxy)
 
 ## Avatar (video)
 
-Sayt 3D modelni **yuklamaydi** — avatar oldindan yozilgan 3 ta video (`frontend/public/avatar/`, ~10 MB mp4 + webm zaxira):
+Sayt 3D modelni **yuklamaydi** — avatar oldindan tayyorlangan 3 ta video (`frontend/public/avatar/`, ~5 MB mp4 + webm zaxira,
+720×1280 tik, to'liq bo'y, old tomondan). Avatar — haqiqiy xodim: videolar uning rasmlaridan AI bilan yaratilgan
+(rasmdan foydalanishga yozma rozilik saqlansin). Ovoz — ayol (`GEMINI_VOICE=Kore`, `backend/app/config.py`).
 
 | Video | Qachon | Qanday |
 |-------|--------|--------|
-| `greeting` (4.2 s) | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) | bir marta: Salute; og'zi Gemini salomining **haqiqiy ovoz egri chizig'idan** |
-| `speaking` (9 s) | **ovoz eshitilayotganda** | uzluksiz gapirish, loop |
-| `idle` (4.5 s) | ovoz yo'q: tinglayotganda, so'zlar/jumlalar orasidagi pauzada, javob tugagach | og'iz yopiq, loop |
+| `greeting` (6 s) | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) | bir marta: qo'li bilan salom, og'zi harakatda |
+| `speaking` (14 s) | **ovoz eshitilayotganda** | uzluksiz gapirish, loop |
+| `idle` (4 s) | ovoz yo'q: tinglayotganda, so'zlar/jumlalar orasidagi pauzada, javob tugagach | og'iz yopiq, nafas va ko'z qisish, loop |
 
 **Og'iz faqat ovoz bor paytda qimirlaydi.** Brauzer pleyerning haqiqiy ovoz balandligini o'lchaydi (`liveAudio` level, `src/AvatarVideo.tsx`):
 ovoz bor → `speaking`, 0.15 s dan ko'p jim → `idle` (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
-`speaking` va `idle` birga yurib turadi (nafas fazasi mos), almashtirish 0.12 s xira-o'tish bilan. Salomdan keyin ikkalasi 0 dan birga boshlanadi
-(salom oxiri = idle boshi). Salom paytida og'iz videoning o'zida (haqiqiy ovoz egri chizig'i: `recorder/greeting-envelope.json`).
+`speaking` va `idle` birga yurib turadi, almashtirish 0.12 s xira-o'tish bilan. Salomdan keyin ikkalasi 0 dan birga boshlanadi
+(uchala klip ham bir xil start kadrdan boshlanib, shu kadrga qaytadi: salom oxiri = idle boshi). `speaking` videosidagi lab harakati
+oldindan berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece sinxron **emas** (faqat ovoz borligiga bog'langan).
 
-**Videolarni qayta yozib olish** (model, kadr yoki og'iz amplitudasi o'zgarsa). Videolar 3D modeldan, brauzerning o'zida
-(WebCodecs) kadrma-kadr **deterministik** render qilinadi — `ffmpeg` kerak emas, faqat Chrome:
+**Videolarni qayta tayyorlash** (boshqa xodim, kadr yoki sifat o'zgarsa):
+1. Xodimning 1–2 rasmidan old tomondan, to'liq bo'yli, qora fonli start kadr yaratiladi (rasm modeli).
+2. Shu kadrdan 3 ta klip: `idle` va `speaking` (start kadr = oxirgi kadr), `greeting` (shu kadrga qaytadi; salom qo'li). Hammasi ovozsiz, 9:16, 720p.
+   `speaking` uchun ayol ovozli namuna audio (14 s) lab harakati uchun beriladi.
+3. Xom kliplar (`idle_raw.mp4`, `speaking_raw.mp4`, `greeting_raw.mp4`) saytga tayyorlanadi: fon sayt foniga (#05070d) almashtiriladi,
+   loop klipning takroriy oxirgi kadri tashlanadi, mp4 + webm + `idle-poster.jpg` yoziladi:
+   ```bash
+   cd frontend
+   FFMPEG_PATH=/yo'l/ffmpeg npm run process:avatar -- <xom-papka>    # ffmpeg: libx264 + libvpx-vp9; chiqish: public/avatar/
+   ```
+   Fon sayt foni bilan **bir xil** bo'lishi shart (`src/styles.css` dagi `--bg`, skriptdagi `BG`), aks holda video chetlari ko'rinadi.
+
+**Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi**.
+Videolar 3D modeldan, brauzerning o'zida (WebCodecs) kadrma-kadr **deterministik** render qilinadi — `ffmpeg` kerak emas, faqat Chrome:
 ```bash
 cd frontend
 npm run record:avatar                              # hammasi: greeting/speaking/idle × mp4/webm + idle-poster.jpg
@@ -79,7 +94,7 @@ npm run record:avatar -- --preview=../.tmp/prev    # video o'rniga PNG kadrlar (
 ## Status
 
 - ✅ Backend: `/faq`, `/avatar/ask` (faq/web/redirect klassifikatsiya), `/search/official` (grounding), suhbat log
-- ✅ Frontend: avatar videolari (salom / gapirish / kutish; 3D modeldan yozib olingan), jonli ovozli suhbat UI
+- ✅ Frontend: avatar videolari (salom / gapirish / kutish; haqiqiy xodim rasmidan AI yaratgan, tik to'liq bo'y), jonli ovozli suhbat UI
 - ⏳ Kerak: `GEMINI_API_KEY` (web-grounding + kelajakda Gemini TTS), galogramma apparati
 - 🔜 Keyingi: o'zbek TTS sifati, kiosk fullscreen, statistika, ko'p FAQ
 

@@ -1,16 +1,17 @@
-// Avatar — oldindan yozilgan videolar (3D model va three.js saytda yo'q; videolarni `npm run record:avatar` yozadi).
+// Avatar — oldindan tayyorlangan videolar (haqiqiy xodim rasmidan AI yaratgan, `npm run process:avatar` saytga tayyorlaydi).
 //
 //   idle     — og'iz yopiq (tinglayotgan avatar yoki gapirish pauzasi), uzluksiz takrorlanadi
 //   speaking — og'iz harakatda, uzluksiz takrorlanadi
-//   greeting — salom (Salute); og'zi Gemini salomining haqiqiy ovoz egri chizig'idan, bir marta
+//   greeting — salom (qo'l bilan Salute, og'zi harakatda), bir marta
 //
 // OG'IZ FAQAT OVOZ BOR PAYTDA QIMIRLAYDI: pleyerning HAQIQIY ovoz balandligi (liveAudio level, analyser) o'qiladi.
 // Ovoz bor → speaking, ovoz VOICE_HOLD_MS dan ko'p jim → idle. Shu tariqa so'zlar/jumlalar orasidagi pauzalarda va
 // javob tugagach og'iz yopiladi (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
 //
-// idle va speaking BIRGA yurib turadi (nafas fazasi mos, almashganda faqat og'iz farq qiladi) — almashtirish
-// xira-o'tish (crossfade) bilan, seek/kechikishsiz. Salom paytida ular boshiga qaytarilib to'xtatiladi; salom tugagach
-// ikkalasi 0 dan BIRGA boshlanadi (salom oxiri = idle boshi, yozib olishda shunday qilingan).
+// idle va speaking BIRGA yurib turadi — almashtirish xira-o'tish (crossfade) bilan, seek/kechikishsiz (uzunliklari
+// har xil: 4 s va 14 s, shuning uchun fazalari birinchi siklda mos, keyin siljiydi; kadr deyarli qimirlamagani uchun sezilmaydi).
+// Salom paytida ular boshiga qaytarilib to'xtatiladi; salom tugagach ikkalasi 0 dan BIRGA boshlanadi
+// (uchala klip ham bir xil start kadrdan boshlanib, shu kadrga qaytadi: salom oxiri = idle boshi).
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 type Phase = "idle" | "speaking" | "greeting";
