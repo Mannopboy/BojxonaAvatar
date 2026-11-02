@@ -18,8 +18,9 @@ type Phase = "idle" | "speaking" | "greeting";
 const CLIPS: readonly Phase[] = ["idle", "speaking", "greeting"];
 
 const FADE_MS = 120; // styles.css dagi .avatar-layer.on bilan bir xil
+const FADE_SAFETY_MS = 400; // transitionend kelmasa, eski qatlam shuncha qo'shimcha kutilib olib tashlanadi
 const VOICE_ON = 0.04; // ovoz balandligi (0..1) shundan oshsa — ovoz bor (haqiqiy Gemini nutqida pauzada ~0.01 dan past)
-const VOICE_HOLD_MS = 150; // shuncha jim bo'lsa og'iz yopiladi: so'zlar orasidagi qisqa tushishda qaltiramasin
+const VOICE_HOLD_MS = 250; // shuncha jim bo'lsa og'iz yopiladi: so'zlar orasidagi qisqa tushishda speaking↔idle miltillamasin
 // Salom normal holatda birinchi ovozda boshlanadi. Haqiqiy Gemini Live'da birinchi audio tugmadan 4–8 s keyin keladi
 // (ulanish ~2 s + model 2–6 s, o'lchangan), shuning uchun zaxira undan ancha keyin — faqat ovoz umuman kelmay qolsa ishlaydi.
 const GREET_FALLBACK_MS = 15_000;
@@ -56,6 +57,19 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
   const timers = useRef<{ fade?: number; greet?: number }>({});
   const [view, setView] = useState<{ phase: Phase; prev: Phase | null }>({ phase: "idle", prev: null });
 
+  /** Xira-o'tish tugagach: eski qatlam olib tashlanadi, ishlatilmayotgan klip(lar) boshiga qaytarilib to'xtatiladi. */
+  const finishFade = useCallback(() => {
+    window.clearTimeout(timers.current.fade);
+    setView((s) => (s.prev ? { ...s, prev: null } : s));
+    const v = videos.current;
+    if (phaseRef.current === "greeting") {
+      park(v.idle); // salom paytida loop'lar boshiga qaytarilib to'xtatiladi — salom oxiriga ulanish uchun
+      park(v.speaking);
+    } else {
+      park(v.greeting);
+    }
+  }, []);
+
   /** Qatlamni almashtiradi: yangisi ustida xira-o'tish bilan paydo bo'ladi, eskisi xira-o'tish tugaguncha ko'rinib turadi. */
   const go = useCallback((next: Phase) => {
     const from = phaseRef.current;
@@ -72,17 +86,12 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
     }
     setView({ phase: next, prev: from });
 
+    // Eski qatlam xira-o'tish HAQIQATAN tugagach (onTransitionEnd) olib tashlanadi. Qat'iy taymer bosh oqimi band bo'lganda
+    // (mikrofon, audio, React) xira-o'tish boshlanmasdan ishlab, orqadagi qatlamni yo'qotardi — rasm bir lahza qorayardi.
+    // Taymer — faqat transitionend kelmaydigan holat uchun zaxira (opacity o'zgarmagan: masalan, prev → on).
     window.clearTimeout(timers.current.fade);
-    timers.current.fade = window.setTimeout(() => {
-      setView((s) => ({ ...s, prev: null }));
-      if (phaseRef.current === "greeting") {
-        park(v.idle); // salom paytida loop'lar boshiga qaytarilib to'xtatiladi — salom oxiriga ulanish uchun
-        park(v.speaking);
-      } else {
-        park(v.greeting);
-      }
-    }, FADE_MS + 40);
-  }, []);
+    timers.current.fade = window.setTimeout(finishFade, FADE_MS + FADE_SAFETY_MS);
+  }, [finishFade]);
 
   const startGreeting = useCallback(() => {
     pendingGreet.current = false;
@@ -155,6 +164,9 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
           disablePictureInPicture
           tabIndex={-1}
           onEnded={name === "greeting" ? afterGreeting : undefined}
+          onTransitionEnd={(e) => {
+            if (e.propertyName === "opacity" && e.currentTarget === videos.current[phaseRef.current]) finishFade();
+          }}
         >
           <source src={`/avatar/${name}.mp4`} type="video/mp4" />
           {/* mp4 (H.264) ijro etilmasa — webm. Oxirgi manba ham yuklanmasa, qatlam kutish videosiga qaytadi. */}

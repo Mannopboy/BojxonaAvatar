@@ -11,10 +11,13 @@ bo'lib ko'rinadi. Bu vosita har kadrni asl start kadrga (reference) moslaydi:
      1 = o'zgarishsiz). Ko'z qisish va og'iz harakati saqlanadi.
   2. RANG: start/oxirgi kadrlar (holati asl kadrga teng) asl kadr bilan solishtirilib, sekin o'zgaradigan rang-yorqinlik
      xaritasi (yuz yorqinroq, ko'ylak ko'kroq...) topiladi va butun klipga qo'llanadi. Tafsilotlar o'zgarmaydi.
+  3. STATIK TANA: bo'yindan pastdagi tana kliplarda start kadrning o'zi bilan almashtiriladi (idle, speaking — butun klip
+     bo'yicha; greeting — faqat boshi va oxirida). Kiyim teksturasi klipdan klipga farq qilmaydi, almashishda faqat bosh
+     (og'iz, ko'z) o'zgaradi. `--no-static-body` bilan o'chiriladi.
 
 Natija `<chiqish>/<nom>_raw.mp4` (deyarli yo'qotishsiz) — keyin `npm run process:avatar` shu papkada ishlaydi.
 
-  python scripts/stabilize-avatar-clips.py <xom-papka> <reference.png> [chiqish-papka] [--keep=idle=0.12,...] [--body-keep=idle=0.03,...] [--only=speaking] [--dry]
+  python scripts/stabilize-avatar-clips.py <xom-papka> <reference.png> [chiqish-papka] [--keep=idle=0.12,...] [--body-keep=idle=0.03,...] [--only=speaking] [--dry] [--no-static-body]
 
 Kerak: python3, numpy, opencv-python; ffmpeg (PATH'da yoki FFMPEG_PATH). Kadr o'lchami 720x1280 deb olinadi.
 """
@@ -29,10 +32,17 @@ import numpy as np
 
 FFMPEG = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg") or "ffmpeg"
 W, H, SC = 720, 1280, 0.5          # kadr; ECC kichraytirilgan kadrda hisoblanadi
-# Qolgan harakat ulushi (0 = qotgan, 1 = o'zgarishsiz). Bosh gapirganda biroz harakat qilsin; TANA deyarli qotiriladi —
-# kliplar almashganda tana chetlarida 1–2 px siljish ham "sakrash" bo'lib ko'rinadi. Salomda qo'l harakati saqlanishi kerak.
-KEEP = {"idle": 0.12, "speaking": 0.25, "greeting": 0.50}
+# Qolgan harakat ulushi (0 = qotgan, 1 = o'zgarishsiz). Bosh ham, tana ham deyarli qotiriladi — kliplar almashganda 1–2 px
+# siljish ham "sakrash" bo'lib ko'rinadi (furajka chetida ikki konturga o'xshaydi); faqat og'iz va ko'z o'zgaradi.
+# Salomda qo'l harakati saqlanishi kerak.
+KEEP = {"idle": 0.05, "speaking": 0.10, "greeting": 0.50}
 BODY_KEEP = {"idle": 0.03, "speaking": 0.03, "greeting": 0.40}
+# Bo'yindan pastdagi TANA hamma holatda BIR XIL statik rasm (start kadr): har klip alohida AI render qilingani uchun kiyim
+# teksturasi klipdan klipga ozgina farq qiladi va almashishda mayda miltillash bo'lib ko'rinadi (ayniqsa katta ekranda).
+# Faqat bosh (og'iz, ko'z) videodan olinadi. "full" — har kadrda; "edges" — klipning boshi/oxirida (salomda qo'l harakati
+# saqlanadi, lekin kutishga ulanadigan joyda tana piksel-piksel bir xil); None — o'chirilgan.
+STATIC_BODY = {"idle": "full", "speaking": "full", "greeting": "edges"}
+EDGE_FRAMES = 10
 HEAD_BOX = (0.045, 0.19, 0.40, 0.60)   # (qator0, qator1, ustun0, ustun1) kadr ulushida: furajkadan iyakkacha (og'iz medianaga ta'sir qilmaydi)
 BODY_BOX = (0.27, 0.50, 0.38, 0.62)    # ko'krak: tugmalar, yoqa, galstuk (qo'llar YO'Q — salomda qo'l harakatlanadi)
 NECK = (0.17, 0.25)                    # bosh siljishi shu oraliqda tana siljishiga o'tadi
@@ -157,7 +167,7 @@ def align(frame, head_m, body_m, weight):
     return head * weight + body * (1.0 - weight)
 
 
-def stabilize(src, dst, ref, keep, body_keep, dry=False):
+def stabilize(src, dst, ref, keep, body_keep, static_mode, dry=False):
     fps = probe_fps(src)
     ref_g = gray_small(ref)
     hm, bm = box_mask(HEAD_BOX, ref_g), box_mask(BODY_BOX, ref_g)
@@ -193,10 +203,19 @@ def stabilize(src, dst, ref, keep, body_keep, dry=False):
     gain = 1.0 + fig * (gain - 1.0)  # faqat figura ustida
     print("  rang kuchaytirish (B,G,R) figura bo'yicha:", np.round((gain * fig).sum((0, 1)) / fig.sum(), 3))
 
-    # 2-o'tish: moslash + rang → yozish
+    # 2-o'tish: moslash + rang (+ statik tana) → yozish
+    still = ref.astype(np.float32)
     w = Writer(dst, fps)
     for k, f in enumerate(read_frames(src)):
         out = align(f, matrix(head_s[k], keep, hc), matrix(body_s[k], body_keep, bc), weight) * gain
+        if static_mode:
+            fixed = out * weight + still * (1.0 - weight)  # bosh videodan, bo'yindan pasti — start kadrdan
+            if static_mode == "edges":
+                t = float(np.clip(1.0 - min(k, n - 1 - k) / EDGE_FRAMES, 0.0, 1.0))
+                t = t * t * (3.0 - 2.0 * t)  # klipning chetida 1, ichida 0
+                out = t * fixed + (1.0 - t) * out
+            else:
+                out = fixed
         w.write(np.clip(out + 0.5, 0, 255).astype(np.uint8))
     w.close()
 
@@ -227,7 +246,8 @@ def main():
             print(f"o'tkazildi (yo'q): {src}")
             continue
         print(f"{name}:")
-        stabilize(src, os.path.join(out, f"{name}_raw.mp4"), ref, keep[name], body_keep[name], dry)
+        stabilize(src, os.path.join(out, f"{name}_raw.mp4"), ref, keep[name], body_keep[name],
+                  None if "--no-static-body" in sys.argv else STATIC_BODY[name], dry)
 
 
 if __name__ == "__main__":

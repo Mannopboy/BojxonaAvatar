@@ -61,7 +61,9 @@ body {
 .avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg); isolation: isolate; }
 .avatar-layer {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: contain; opacity: 0; z-index: 0; pointer-events: none;
+  /* Yashirin qatlam opacity: 0 emas, 0.01: aks holda brauzer uni chizmay qo'yadi va ko'rinishi bilan bir kadr qora chiqishi mumkin.
+     Ustida har doim to'liq noshaffof .on qatlami turadi, shuning uchun 1% sezilmaydi. */
+  object-fit: contain; opacity: 0.01; z-index: 0; pointer-events: none; will-change: opacity;
 }
 /* Eski qatlam to'liq ko'rinib turadi, yangisi uning ustida xira-o'tish bilan paydo bo'ladi (o'rtada qorayish bo'lmasin) */
 .avatar-layer.prev { opacity: 1; z-index: 1; }
