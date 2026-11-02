@@ -75,9 +75,11 @@ oldindan berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece 
    cd frontend
    python scripts/stabilize-avatar-clips.py <xom-papka> <start-kadr.png> <qotirilgan-papka>
    ```
-   Har kadrning bosh va tana holati start kadrga keltiriladi (tana deyarli qotadi, bosh gapirganda biroz harakat qiladi; ko'z qisish va
-   og'iz saqlanadi), rang-yorqinlik xaritasi start kadrga moslanadi. O'lchangan: kutish va gapirish orasidagi rang farqi
-   (R,G,B) (3.2, 2.3, −2.7) → (0.3, 0.2, 0.3); tana farqi 12 → ~5 daraja.
+   Har kadrning bosh va tana holati start kadrga keltiriladi (deyarli qotadi; ko'z qisish va og'iz saqlanadi), rang-yorqinlik
+   xaritasi start kadrga moslanadi, bo'yindan pastdagi **tana start kadrning o'zi bilan almashtiriladi** (kiyim teksturasi
+   klipdan klipga farq qilmasin — aks holda almashishda mayda miltillash bo'ladi; salomda faqat boshi va oxirida).
+   O'lchangan (kutish ↔ gapirish): rang farqi (R,G,B) (3.2, 2.3, −2.7) → (0.0, 0.0, 0.0); tana, qo'l, oyoq farqi 12.2 → 0.6 daraja
+   (faqat siqish shovqini); faqat bosh (og'iz, ko'z) farq qiladi.
 4. Xom kliplar (`idle_raw.mp4`, `speaking_raw.mp4`, `greeting_raw.mp4` — qotirilgan papkada) saytga tayyorlanadi: fon sayt foniga (#05070d) almashtiriladi,
    loop klipning takroriy oxirgi kadri tashlanadi, mp4 + webm + `idle-poster.jpg` yoziladi:
    ```bash
