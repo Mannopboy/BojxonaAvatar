@@ -15,7 +15,9 @@ tayanib yig'adi:
      Yuz markazi (qosh, ko'z, burun, og'iz) har doim videodan; yonoq/jag' chizig'i halqasida — faqat video asl kadrdan (past
      chastotada) FARQ QILGAN joyda (chok ko'rinmasin); sirg'alar — doim asl kadrdan. Mayda tafsilotni asl kadrdan videoga
      qo'yish SIRG'ALANGAN qosh/sirg'a ustiga "ikkinchi qosh" bo'lib tushardi — shuning uchun qilinmaydi.
-     Greeting'da qo'shimcha: asl kadrdan sezilarli farq qiladigan joy (ko'tarilgan qo'l) ham videodan olinadi.
+     Greeting'da qo'shimcha: asl kadrdan sezilarli farq qiladigan joy (ko'tarilgan qo'l) ham videodan olinadi — FAQAT qo'l hududida
+     (ARM_X/ARM_Y), tana qotirilgan (BODY_KEEP=0): aks holda galstuk, yoqa va yelka "ikki qatlam" bo'lib ko'rinadi.
+     Yuz ifodasi pastki yuzda DAMP ulushiga yumshatiladi (AI ifodasi ortiqcha), yuz klipi kadrlari SMOOTH bilan vaqt bo'yicha silliqlanadi.
   4. KONTUR VA FON: odam konturi (make-avatar-matte.py, soch bilan) bo'yicha fon sayt foni (#05070d) ga almashtiriladi.
      Fon boshning orqasida sal yoritilgan (--glow): qop-qora soch sof qora fonda ko'rinmay qolardi ("kal" ko'rinish).
   5. QATLAMLAR (rig): sayt avatarni bitta video emas, qatlamlar qilib ko'rsatadi — base.png (boshsiz tana), head.png (alfa kanalli
@@ -50,7 +52,9 @@ OW, OH = 1080, 1920                # chiqish
 # Qolgan harakat ulushi (0 = qotgan, 1 = o'zgarishsiz). Bosh va tana deyarli qotiriladi: kliplar almashganda 1–2 px siljish
 # ham "sakrash" bo'lib ko'rinadi. Salomda qo'l ko'tarilishi uchun biroz harakat qolishi kerak.
 KEEP = {"idle": 0.05, "speaking": 0.10, "greeting": 0.15}
-BODY_KEEP = {"idle": 0.03, "speaking": 0.03, "greeting": 0.15}
+# Salomda ham tana qotiriladi (0): qolgan 15% harakat galstuk, yoqa va yelkani asl kadrdan siljitib, qo'l maskasiga tushib,
+# "ikki galstuk" (xira ikki qatlam) bergan. Qo'l tanaga bog'liq qolishi uchun uning o'zi ham shu moslash bilan siljiydi.
+BODY_KEEP = {"idle": 0.03, "speaking": 0.03, "greeting": 0.0}
 ARM = {"greeting"}                     # asl kadrdan farq qiladigan joy (qo'l) videodan olinadigan kliplar
 HEAD_BOX = (0.045, 0.19, 0.40, 0.60)   # (qator0, qator1, ustun0, ustun1) kadr ulushida: furajkadan iyakkacha (og'iz medianaga ta'sir qilmaydi)
 BODY_BOX = (0.27, 0.50, 0.38, 0.62)    # ko'krak: tugmalar, yoqa, galstuk (qo'llar YO'Q — salomda qo'l harakatlanadi)
@@ -84,7 +88,18 @@ CUT = (356, 366)                       # shu oraliqda (bo'yin terisi) bosh qatla
 PIVOT = (540, 362)                     # boshning burilish markazi (bo'yin tagi)
 FACE_RECT = (420, 190, 660, 366)       # yuz videolari (idle, speaking): faqat shu qirqim yoziladi
 CROPS = {"idle": FACE_RECT, "speaking": FACE_RECT}   # greeting — to'liq kadr (qo'l va tana ham harakatlanadi)
-END_BLEND = 6                          # to'liq kadrli klipning boshi/oxiri shuncha kadr ichida statik kadrga tenglashtiriladi
+START_BLEND, END_BLEND = 12, 6         # to'liq kadrli klipning boshi/oxiri shuncha kadr ichida statik kadrga tenglashtiriladi (boshi uzoqroq:
+                                       # AI salomning birinchi soniyasidayoq og'zini keng ochadi — yuz bir zumda tabassumga sakramasin)
+# Salom maskasi FAQAT qo'l uchun: o'ngda (tana, galstuk, yelka) va pastda (son) video ishlatilmaydi — u yerda asl kadr.
+ARM_X = (470, 520)                     # shu x dan o'ngda qo'l yo'q (barmoq uchlari furajka chetigacha, x≈480 gacha boradi)
+ARM_Y = (1100, 1200)                   # shu y dan pastda qo'l yo'q
+ARM_THR = (24, 44)                     # qo'l farqi chegarasi (rang darajasi): avval 12–22 edi — tananing mayda siljishi ham qo'l bo'lib tushardi
+# Yuz ifodasi pastki yuzda (burun, og'iz, jag') yumshatiladi: AI ifodasi ortiqcha (lablar cho'chchayadi, keng tabassum). Videoning
+# asl kadrdan optik oqimi beta ulushiga kamaytiriladi; ko'z va qosh (DAMP_ROWS dan yuqorisi) tegilmaydi — pirpirash saqlanadi.
+DAMP = {"speaking": 0.5, "greeting": 0.5}
+DAMP_ROWS = (272, 296)                 # chiqish pikselida: bu qatordan yuqorisi — ko'z/qosh (to'liq videodan), pastdan to'liq yumshatish
+DAMP_SIGMA = 5.0
+SMOOTH = (0.2, 0.6, 0.2)               # yuz klipi kadrlari vaqt bo'yicha silliqlanadi (AI har kadrni qayta chizadi: teri va lab titraydi)
 LIMIT = 0                              # --limit=N: faqat birinchi N kadr (tez sinash uchun)
 
 
@@ -251,6 +266,28 @@ def key_abs(img):
     return np.maximum(smoothstep(30, 44, lum), smoothstep(7, 13, chroma))[..., None]
 
 
+def damp_face(up, still, beta):
+    """Yuz qirqimida videoning asl kadrdan optik oqimini `beta` ulushiga kamaytirib, ifodani yumshatadi (faqat DAMP_ROWS dan pastda)."""
+    x0, y0, x1, y1 = FACE_RECT
+    gray = lambda a: cv2.GaussianBlur(cv2.cvtColor(np.clip(a, 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY), (0, 0), 1.2)
+    crop = up[y0:y1, x0:x1]
+    flow = cv2.calcOpticalFlowFarneback(gray(still[y0:y1, x0:x1]), gray(crop), None, 0.5, 3, 21, 3, 5, 1.1, 0)
+    flow = cv2.GaussianBlur(flow, (0, 0), DAMP_SIGMA)
+    yy, xx = np.mgrid[0:y1 - y0, 0:x1 - x0].astype(np.float32)
+    wy = smoothstep(DAMP_ROWS[0], DAMP_ROWS[1], yy + y0)
+    warped = cv2.remap(crop, xx + beta * wy * flow[..., 0], yy + beta * wy * flow[..., 1], cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    out = up.copy()
+    out[y0:y1, x0:x1] = warped
+    return out
+
+
+def temporal_smooth(frames, w=SMOOTH):
+    """Aylanma (loop) klip kadrlarini [w0, w1, w2] og'irliklar bilan vaqt bo'yicha silliqlaydi."""
+    n = len(frames)
+    f = [x.astype(np.float32) for x in frames]
+    return [np.clip(w[0] * f[(i - 1) % n] + w[1] * f[i] + w[2] * f[(i + 1) % n] + 0.5, 0, 255).astype(np.uint8) for i in range(n)]
+
+
 def head_mask():
     """Bosh qatlamining (OH, OW, 1) maskasi: CUT[0] dan yuqorisi 1 (bosh), CUT[1] dan pastki 0 (tana); oraliq — bo'yin terisi."""
     rows = np.arange(OH, dtype=np.float32)
@@ -278,7 +315,7 @@ def write_rig(out, still, matte, bg):
     print(f"  rig: base.png, head.png ({x1 - x0}x{y1 - y0}), rig.json")
 
 
-def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False, crop=None, seq=None):
+def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False, crop=None, seq=None, damp=0.0):
     fps = probe_fps(src)
     ref_g = gray_small(ref)
     hm, bm = box_mask(HEAD_BOX, ref_g), box_mask(BODY_BOX, ref_g)
@@ -316,6 +353,9 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
 
     # 2-o'tish: moslash + rang → montaj (asl kadr + yuz [+ qo'l]) → kontur bo'yicha fon → yozish
     static = np.clip(matte * still + (1.0 - matte) * bg + 0.5, 0, 255).astype(np.uint8)   # asl montaj (statik kadr)
+    gy, gx = np.mgrid[0:OH, 0:OW].astype(np.float32)
+    arm_gate = ((1.0 - smoothstep(ARM_X[0], ARM_X[1], gx)) * (1.0 - smoothstep(ARM_Y[0], ARM_Y[1], gy)))[..., None]
+    zone = face.sum(2, keepdims=True)
     if crop:
         cx0, cy0, cx1, cy1 = crop
         kept = []
@@ -324,6 +364,8 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
     for k, f in enumerate(read_frames(src)):
         al = align(f, matrix(head_s[k], keep, hc), matrix(body_s[k], body_keep, bc), weight) * gain
         up = cv2.resize(al, (OW, OH), interpolation=cv2.INTER_CUBIC)
+        if damp:
+            up = up + (damp_face(up, still, damp) - up) * zone      # ifoda yumshatiladi (faqat yuz zonasida)
         # YUZ: farq maskasi. Video asl kadrdan (past chastotalarda: shakl, soya, rang) FARQ QILGAN joyda — videoning o'zi
         # (qosh ko'tarilgan, lab cho'chchaygan, ko'z yumilgan), farq yo'q joyda — asl kadr (o'tkir teri, kiprik). Chegara farq
         # nolga tushgan joyda o'tadi, shuning uchun chok ko'rinmaydi. (Avval asl kadrning mayda tafsiloti siljigan qosh va
@@ -335,8 +377,9 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
         face_w = face[..., :1] + face[..., 1:] * move
         if arm:
             d = cv2.GaussianBlur(np.abs(up - still).max(2), (0, 0), 3)
-            a = cv2.GaussianBlur(cv2.dilate(smoothstep(12, 22, d), np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
-            a = np.clip(a * 1.8, 0.0, 1.0) * (1.0 - face.sum(2, keepdims=True))  # qat'iyroq (yeng izi qolmasin); yuz zonasidan tashqarida
+            a = cv2.GaussianBlur(cv2.dilate(smoothstep(ARM_THR[0], ARM_THR[1], d), np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
+            # qat'iyroq (yeng izi qolmasin); yuz zonasidan va qo'l bo'lishi mumkin bo'lmagan joydan (tana, son) tashqarida
+            a = np.clip(a * 1.8, 0.0, 1.0) * (1.0 - zone) * arm_gate
             dyn = np.maximum(face_w, a)
             cut = matte * (1.0 - a) + key_abs(up) * a             # qo'l konturi kadrning o'z rangidan
         else:
@@ -347,7 +390,7 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
             kept.append(frame[cy0:cy1, cx0:cx1].copy())
             continue
         # to'liq kadrli klip: boshi va oxiri statik kadrga tenglashadi (yuz/tana qatlamlari bilan xira-o'tish sezilmasin)
-        t = min(1.0, min(k, n - 1 - k) / END_BLEND)
+        t = min(1.0, k / START_BLEND, (n - 1 - k) / END_BLEND)
         if t < 1.0:
             frame = np.clip(static * (1.0 - t) + frame * t + 0.5, 0, 255).astype(np.uint8)
         w.write(frame)
@@ -356,9 +399,10 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
         return
     order = seq if seq else list(range(len(kept)))
     print(f"  {len(kept)} kadrdan {len(order)} kadrli klip yig'ildi")
+    ordered = temporal_smooth([kept[i] for i in order])   # AI kadrma-kadr titrashi (teri, lab) silliqlanadi
     w = Writer(dst, fps, size=(cx1 - cx0, cy1 - cy0))
-    for i in order:
-        w.write(kept[i])
+    for frame in ordered:
+        w.write(frame)
     w.close()
 
 
@@ -409,7 +453,7 @@ def main():
             continue
         print(f"{name}:")
         build(src, os.path.join(out, f"{name}_raw.mp4"), ref, still, matte, bg, face, keep[name], body_keep[name], name in ARM, dry,
-              crop=CROPS.get(name), seq=seqs.get(name))
+              crop=CROPS.get(name), seq=seqs.get(name), damp=DAMP.get(name, 0.0))
 
 
 if __name__ == "__main__":
