@@ -1,12 +1,13 @@
-// Yig'ilgan avatar kliplarini (build-avatar-clips.py natijasi: fon va kontur tayyor) sayt uchun kodlaydi:
-//   - mp4 (H.264, asosiy) + webm (VP9, zaxira) + idle-poster.jpg;
+// Yig'ilgan avatar qatlamlarini (build-avatar-clips.py natijasi) sayt uchun kodlaydi:
+//   - base.jpg (tana, boshsiz) va head.webp (bosh, alfa kanalli) — rasmlar;
+//   - idle, speaking: yuz qirqimi videolari; greeting: to'liq kadrli salom — har biri mp4 (H.264, asosiy) + webm (VP9, zaxira);
 //   - loop kliplarning (idle, speaking) oxirgi kadri tashlanadi: u birinchi kadrning o'zi, loopda ikki marta ko'rinardi;
-//   - rang BT.709 teglari saqlanadi (brauzer shu matritsa bilan o'qiydi).
+//   - rang BT.709 teglari saqlanadi (brauzer shu matritsa bilan o'qiydi); rig.json — qatlamlar joylashuvi (avatarRig.ts bilan bir xil).
 //
 //   node scripts/process-avatar-clips.mjs <yig'ilgan-papka> [chiqish-papka]
 //
-// Papkada: idle_raw.mp4, speaking_raw.mp4, greeting_raw.mp4 (uchalasi ham start kadrdan boshlanib, shu kadrga qaytadi).
-// ffmpeg: PATH'da yoki FFMPEG_PATH (libx264 va libvpx-vp9 bilan).
+// Papkada: base.png, head.png, rig.json, idle_raw.mp4, speaking_raw.mp4, greeting_raw.mp4.
+// ffmpeg: PATH'da yoki FFMPEG_PATH (libx264, libvpx-vp9 va libwebp bilan).
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +20,7 @@ if (!RAW) {
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const LOOPS = new Set(["idle", "speaking"]);
 const CLIPS = ["idle", "speaking", "greeting"];
+const FACE_CLIPS = LOOPS; // yuz qirqimlari kichik: yuqori sifat deyarli bepul (to'liq kadrli salom ancha o'tkirroq siqiladi)
 const TAGS = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
 
 const ffmpegInfo = (file) => {
@@ -37,6 +39,16 @@ const run = (args) => {
 };
 
 fs.mkdirSync(OUT, { recursive: true });
+
+// Rasmlar: tana (JPEG, alfa kerak emas) va bosh (WebP, alfa bilan). Bosh o'tkir qolishi kerak: yuqori sifat.
+const base = path.join(RAW, "base.png");
+const head = path.join(RAW, "head.png");
+if (!fs.existsSync(base) || !fs.existsSync(head)) throw new Error(`${base} yoki ${head} yo'q: avval build-avatar-clips.py ni ishga tushiring`);
+run(["-i", base, "-q:v", "2", "-pix_fmt", "yuvj444p", "-y", path.join(OUT, "base.jpg")]);
+run(["-i", head, "-c:v", "libwebp", "-quality", "95", "-compression_level", "6", "-y", path.join(OUT, "head.webp")]);
+fs.copyFileSync(path.join(RAW, "rig.json"), path.join(OUT, "rig.json"));
+console.log(`rasmlar: base.jpg ${fs.statSync(path.join(OUT, "base.jpg")).size} bayt, head.webp ${fs.statSync(path.join(OUT, "head.webp")).size} bayt`);
+
 for (const name of CLIPS) {
   const src = path.join(RAW, `${name}_raw.mp4`);
   if (!fs.existsSync(src)) {
@@ -45,12 +57,12 @@ for (const name of CLIPS) {
   }
   const info = ffmpegInfo(src);
   const frames = info.frames - (LOOPS.has(name) ? 1 : 0);
+  const crf = FACE_CLIPS.has(name) ? { x264: "16", vp9: "26" } : { x264: "22", vp9: "34" };
   const out = (opts, file) => ["-vf", "format=yuv420p", ...TAGS, "-an", ...opts, "-y", path.join(OUT, file)];
   run([
     "-i", src, "-frames:v", String(frames),
-    ...out(["-c:v", "libx264", "-preset", "slow", "-crf", "22", "-g", "24", "-movflags", "+faststart"], `${name}.mp4`),
-    ...out(["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34", "-row-mt", "1", "-cpu-used", "2"], `${name}.webm`),
+    ...out(["-c:v", "libx264", "-preset", "slow", "-crf", crf.x264, "-g", "24", "-movflags", "+faststart"], `${name}.mp4`),
+    ...out(["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", crf.vp9, "-row-mt", "1", "-cpu-used", "2"], `${name}.webm`),
   ]);
-  if (name === "idle") run(["-i", path.join(OUT, "idle.mp4"), "-frames:v", "1", "-q:v", "3", "-y", path.join(OUT, "idle-poster.jpg")]);
   console.log(`${name}: ${frames} kadr, ${info.width}×${info.height} → ${OUT}`);
 }

@@ -47,26 +47,34 @@ npm run dev            # http://localhost:5173  (/api → backend proxy)
 
 ## Avatar (video)
 
-Sayt 3D modelni **yuklamaydi** — avatar oldindan tayyorlangan 3 ta video (`frontend/public/avatar/`, ~4 MB mp4 + webm zaxira,
-1080×1920 tik, to'liq bo'y, old tomondan). Avatar — haqiqiy xodim: yuz AI videodan, qolgani (tana, furajka, soch) uning rasmidan
-(rasmdan foydalanishga yozma rozilik saqlansin). Ovoz — ayol (`GEMINI_VOICE=Kore`, `backend/app/config.py`).
+Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga yozma rozilik saqlansin), u **qatlamlardan** yig'iladi
+(`frontend/public/avatar/`, jami ~2.3 MB; 1080×1920 tik, to'liq bo'y, old tomondan). Ovoz — ayol (`GEMINI_VOICE=Kore`, `backend/app/config.py`).
 
-| Video | Qachon | Qanday |
-|-------|--------|--------|
-| `greeting` (6 s) | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) | bir marta: qo'li bilan salom, og'zi harakatda |
-| `speaking` (14 s) | **ovoz eshitilayotganda** | uzluksiz gapirish, loop |
-| `idle` (4 s) | ovoz yo'q: tinglayotganda, so'zlar/jumlalar orasidagi pauzada, javob tugagach | og'iz yopiq, ko'z qisish, loop |
+| Qatlam | Nima | Qachon |
+|--------|------|--------|
+| `base.jpg` | tana, boshsiz (qimirlamaydi) | doim |
+| `head.webp` | bosh: furajka, soch, yuz, quloq (alfa kanalli, asl rasmdan, o'tkir) | doim; pleyer uni bo'yin tagi atrofida yengil aylantirib siljitadi |
+| `idle` (4.6 s) | **yuz qirqimi** (240×176): og'iz yopiq, bitta tabiiy pirpirash, loop | ovoz yo'q: tinglayotganda, so'z/jumla pauzasida, javob tugagach |
+| `speaking` (12.8 s) | **yuz qirqimi**: og'iz, qosh, yonoq harakatda, loop | **ovoz eshitilayotganda** |
+| `greeting` (6 s) | to'liq kadr: qo'li bilan salom, og'zi harakatda; boshi va oxiri qatlamlarga piksel-piksel teng | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) |
+
+**Bosh qotib turmaydi.** Yuz videolari bosh qatlami **ichida** turadi, shuning uchun bosh bilan birga yuradi (`src/avatarRig.ts` — `headPose`):
+tinch holatda ≈ ±0.4° sekin tebranish, gapirganda ≈ ±1.6° irg'ash (ovoz balandligiga qarab), salom paytida qotadi, kadrdan kadrga hamisha silliq.
+Furajka va soch AI videodan emas, asl rasmdan, shuning uchun titramaydi va qiyshaymaydi.
 
 **Og'iz faqat ovoz bor paytda qimirlaydi.** Brauzer pleyerning haqiqiy ovoz balandligini o'lchaydi (`liveAudio` level, `src/AvatarVideo.tsx`):
 ovoz bor → `speaking`, 0.25 s dan ko'p jim → `idle` (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
-`idle` va `speaking` **doim birga yuradi** (salom paytida ham: to'xtatilgan klipni qayta boshlash ~100 ms qotish bergan), almashtirish 0.12 s
-xira-o'tish bilan. Eski qatlam xira-o'tish tugagach (`transitionend`) olib tashlanadi, taymer faqat zaxira. `speaking` videosidagi lab
-harakati oldindan berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece sinxron **emas** (faqat ovoz borligiga bog'langan).
+`idle` va `speaking` **doim birga yuradi** (to'xtatilgan klipni qayta boshlash ~100 ms qotish bergan), almashtirish 0.12 s xira-o'tish bilan.
+Eski qatlam xira-o'tish tugagach (`transitionend`) olib tashlanadi, taymer faqat zaxira. `speaking` videosidagi lab harakati oldindan
+berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece sinxron **emas** (faqat ovoz borligiga bog'langan).
 
-**Nega almashish sezilmaydi.** Hamma kliplarda tana, furajka, soch va quloq **asl kadrning o'zi** (piksel-piksel bir xil, o'tkir);
-videodan faqat yuz (qosh, ko'z, og'iz, iyak) qo'yiladi, salomda esa ko'tarilgan qo'l ham. AI video bo'lmaganda ham shunday qilish
-shart: AI har kadrni qayta chizadi — furajkani qiyshaytiradi, kiyim teksturasini "titratadi", rangni klipdan klipga o'zgartiradi,
-qora sochni fon bilan birlashtiradi.
+**Nega almashish sezilmaydi.** Kliplar almashganda faqat kichik yuz qirqimi xira-o'tadi; tana, furajka va soch qatlamlari hech qachon
+almashmaydi (o'lchangan: tana kadrlararo farqi 0.0). Salom — to'liq kadr, lekin boshi va oxiri qatlamlarga piksel-piksel teng, shuning
+uchun uning xira-o'tishi ham sezilmaydi. Yuz videodan **farq maskasi** bilan olinadi: yuz markazi (qosh, ko'z, burun, og'iz) har doim videodan,
+yonoq/jag' chizig'i — faqat video asl rasmdan farq qilgan joyda, sirg'alar — doim asl rasmdan. (Avval asl rasmning mayda tafsiloti
+siljigan qosh ustiga qo'yilardi: «ikki qosh», «ikki sirg'a» — bir video ikkinchisining ustiga tushgandek.)
+AI video bo'lmaganda ham shunday qilish shart: AI har kadrni qayta chizadi — furajkani qiyshaytiradi, kiyim teksturasini "titratadi",
+rangni klipdan klipga o'zgartiradi, qora sochni fon bilan birlashtiradi.
 
 **Videolarni qayta tayyorlash** (boshqa xodim, kadr yoki sifat o'zgarsa; kerak: python3, `pip install opencv-python numpy rembg onnxruntime pymatting`, ffmpeg `PATH` yoki `FFMPEG_PATH`):
 1. Xodimning 1–2 rasmidan old tomondan, to'liq bo'yli, qora fonli, furajkasi tekis start kadr yaratiladi (rasm modeli). **Furajka va soch shu kadrdan olinadi**, shuning uchun u yerda tekis va to'liq bo'lishi kerak.
@@ -78,23 +86,33 @@ qora sochni fon bilan birlashtiradi.
    cd frontend
    python scripts/make-avatar-matte.py <start-kadr.png> <kontur.png>
    ```
-4. **Yig'ish** — har kadrning bosh va tana holati start kadrga keltiriladi, rang-yorqinlik unga moslanadi, montaj qilinadi (asl kadr + yuz
-   [+ qo'l]), kontur bo'yicha fon sayt foniga (#05070d) almashtiriladi; boshning orqasida yengil yoritilgan fon (`--glow`, aks holda qora soch ko'rinmaydi):
+4. **Yig'ish** — har kadrning bosh va tana holati start kadrga keltiriladi, rang-yorqinlik unga moslanadi; yuz videodan, qolgani asl kadrdan
+   olinadi (farq maskasi); kontur bo'yicha fon sayt foniga (#05070d) almashtiriladi (boshning orqasida yengil yorug'lik: `--glow`, aks holda
+   qora soch ko'rinmaydi). Natija: `base.png` (boshsiz tana), `head.png` (alfa kanalli bosh), `rig.json` (joylashuv), `idle_raw.mp4` va
+   `speaking_raw.mp4` (yuz qirqimi), `greeting_raw.mp4` (to'liq kadr):
    ```bash
-   python scripts/build-avatar-clips.py <xom-papka> <start-kadr.png> <kontur.png> <yig'ilgan-papka>   # xom-papka: idle_raw.mp4, speaking_raw.mp4, greeting_raw.mp4
+   python scripts/build-avatar-clips.py <xom-papka> <start-kadr.png> <kontur.png> <yig'ilgan-papka> \
+     "--seq=idle:0-28,27-1,0-28,29-32,76-96" "--seq=speaking:30-336"      # xom-papka: idle_raw.mp4, speaking_raw.mp4, greeting_raw.mp4
    ```
-5. **Kodlash**: mp4 + webm + `idle-poster.jpg` (loop klipning takroriy oxirgi kadri tashlanadi):
+   `--seq=<klip>:a-b,c-d` — chiqish kadrlari tartibi (a>b bo'lsa teskari). Bu yerda: AI **kutish** klipida ko'zlar 1.7 s yumuq turardi
+   (kutayotgan odamga o'xshamaydi) — ochiq kadrlar oldinga-orqaga takrorlanib, bitta tez pirpirash qo'shildi; **gapirish** klipi og'zi yopiq
+   kadrdan boshlanadi (loop choki sezilmasin). Raqamlar xom klipga bog'liq: har yangi klipda `--limit=N` bilan yuz qirqimlarini ko'zdan kechiring.
+   Qatlam chegaralari (`HEAD_RECT`, `CUT`, `PIVOT`, `FACE_RECT`) skriptda, `src/avatarRig.ts` bilan bir xil bo'lishi shart (`npm test` solishtiradi).
+5. **Kodlash**: base.jpg, head.webp, mp4 + webm (loop klipning takroriy oxirgi kadri tashlanadi):
    ```bash
    npm run process:avatar -- <yig'ilgan-papka>      # chiqish: public/avatar/
    ```
-   Fon sayt foni bilan **bir xil** bo'lishi shart (`src/styles.css` dagi `--bg`, `build-avatar-clips.py` dagi `BG`), aks holda video chetlari ko'rinadi.
-6. **Sinov** — har bir o'tish turi alohida o'lchanadi (kechikish, qotish, ekrandagi sakrash, qorayish):
+   Fon sayt foni bilan **bir xil** bo'lishi shart (`src/styles.css` dagi `--bg`, `build-avatar-clips.py` dagi `BG`), aks holda tana chetlari ko'rinadi.
+   Fayllar mazmuni o'zgarsa `src/avatarRig.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
+6. **Sinov** — har bir o'tish turi alohida o'lchanadi (kechikish, qotish, tana/furajka sakrashi, qorayish) va bosh harakati tekshiriladi:
    ```bash
    npm run build && npm run test:transitions         # THROTTLE=4 — zaif noutbuk; HEADFUL=1 — oyna bilan; DUMP_DIR=… — o'tish kadrlarini saqlash
    ```
-   O'lchangan (kutish ↔ gapirish): tana, furajka, soch — farq 0.1–0.4 daraja (siqish shovqini), rang farqi 0, yorqinlik tushishi 0.3% gacha, kadr qotishi ≤ 67 ms (2 kadr).
+   O'lchangan (CPU 1× va 4×): tana kadrlararo farqi 0.0, furajka/soch — oddiy qimirlashdan ≤ 1.5 ortiq, yorqinlik tushishi ≤ 1.3%, kadr qotishi
+   ≤ 67 ms (2 kadr), boshning burilishi tinch holatda 0.43°, gapirganda 1.60°, salomda 0°, kadrdan kadrga ≤ 0.11°.
 
-**Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi**.
+**Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi** va
+qatlamli pleyer (`base.jpg`, `head.webp`, yuz qirqimlari) bilan **mos emas**: u to'liq kadrli kliplar yozadi. Faqat arxiv uchun.
 Videolar 3D modeldan, brauzerning o'zida (WebCodecs) kadrma-kadr **deterministik** render qilinadi — `ffmpeg` kerak emas, faqat Chrome:
 ```bash
 cd frontend
