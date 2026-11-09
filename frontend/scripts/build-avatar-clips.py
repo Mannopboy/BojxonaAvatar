@@ -94,6 +94,14 @@ START_BLEND, END_BLEND = 12, 6         # to'liq kadrli klipning boshi/oxiri shun
 ARM_X = (470, 520)                     # shu x dan o'ngda qo'l yo'q (barmoq uchlari furajka chetigacha, x≈480 gacha boradi)
 ARM_Y = (1100, 1200)                   # shu y dan pastda qo'l yo'q
 ARM_THR = (24, 44)                     # qo'l farqi chegarasi (rang darajasi): avval 12–22 edi — tananing mayda siljishi ham qo'l bo'lib tushardi
+# Tushirilgan qo'l (yeng) asl kadrda tananing chap tomonida turadi; salomda qo'l ko'tarilgach u yer FON bo'lishi kerak. Yeng ham, fon ham
+# to'q (farq ≈ 20 < ARM_THR) — shuning uchun u yerda asl kadrning yengi "arvoh" bo'lib qolardi. Faqat shu hududda (tanadan tashqarida:
+# x < 390) chegara pastroq, fon belgisi esa xiralashtirilgan (donador fon qora dog' bermasin). Hudud: (x0, x1, y0, y1), chiqish pikselida.
+ARM_GHOST = (262, 388, 470, 1140)
+ARM_GHOST_THR = (8, 17)
+# Salomda yuz maskasi kattaroq: ko'z va qosh MARKAZ ichida bo'lsin (oddiy maskada ular HALQA chegarasida: bir ko'z asl kadrdan, ikkinchisi
+# videodan — "qisib turgan ko'z"). Salomda butun kadr video, shuning uchun asl kadr bilan aralashtirish kerak emas, faqat chekkada.
+FACE_SCALE = {"greeting": (1.45, 1.25)}   # (rx, ry_up) ko'paytirgich
 # Yuz ifodasi pastki yuzda (burun, og'iz, jag') yumshatiladi: AI ifodasi ortiqcha (lablar cho'chchayadi, keng tabassum). Videoning
 # asl kadrdan optik oqimi beta ulushiga kamaytiriladi; ko'z va qosh (DAMP_ROWS dan yuqorisi) tegilmaydi — pirpirash saqlanadi.
 DAMP = {"speaking": 0.5, "greeting": 0.5}
@@ -224,12 +232,12 @@ def smoothstep(a, b, x):
     return t * t * (3.0 - 2.0 * t)
 
 
-def face_mask():
+def face_mask(sx=1.0, sy_up=1.0):
     """Yuz zonalari (OH, OW, 2): [..., 0] — MARKAZ (har doim videodan), [..., 1] — HALQA (farq maskasi bilan). Yig'indi 1 gacha."""
     yy, xx = np.mgrid[0:OH, 0:OW].astype(np.float32)
-    u = (xx / OW - FACE["cx"]) / FACE["rx"]
+    u = (xx / OW - FACE["cx"]) / (FACE["rx"] * sx)
     dy = yy / OH - FACE["cy"]
-    v = np.where(dy < 0, dy / FACE["ry_up"], dy / FACE["ry_dn"])
+    v = np.where(dy < 0, dy / (FACE["ry_up"] * sy_up), dy / FACE["ry_dn"])
     r = np.sqrt(u * u + v * v)
     inner = smoothstep(FACE_CORE[0], FACE_CORE[1], r)
     core = 1.0 - inner
@@ -259,11 +267,17 @@ def backdrop(add):
     return img + (rng.random((OH, OW, 1), dtype=np.float32) - 0.5) * 1.6  # ~±0.8 daraja: gradient halqalari sezilmasin
 
 
-def key_abs(img):
-    """Kadrning o'z rangidan fon belgisi: to'q VA rangsiz piksellar fon (faqat harakatlanuvchi qo'l uchun; soch uchun kontur)."""
+def key_abs(img, zone=None):
+    """Kadrning o'z rangidan fon belgisi: to'q VA rangsiz piksellar fon (faqat harakatlanuvchi qo'l uchun; soch uchun kontur).
+    zone (0..1) bo'lsa, shu hududda belgi xiralashtirilgan va rang talabi qattiqroq: AI fonidagi mayda rang shovqini dog' bermasin."""
     lum = img.mean(2)
     chroma = img.max(2) - img.min(2)
-    return np.maximum(smoothstep(30, 44, lum), smoothstep(7, 13, chroma))[..., None]
+    key = np.maximum(smoothstep(30, 44, lum), smoothstep(7, 13, chroma))[..., None]
+    if zone is None:
+        return key
+    lum_b, chroma_b = cv2.GaussianBlur(lum, (0, 0), 3.0), cv2.GaussianBlur(chroma, (0, 0), 3.0)
+    key_b = np.maximum(smoothstep(30, 44, lum_b), smoothstep(9, 15, chroma_b))[..., None]
+    return key + (key_b - key) * zone
 
 
 def damp_face(up, still, beta):
@@ -315,7 +329,7 @@ def write_rig(out, still, matte, bg):
     print(f"  rig: base.png, head.png ({x1 - x0}x{y1 - y0}), rig.json")
 
 
-def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False, crop=None, seq=None, damp=0.0):
+def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False, crop=None, seq=None, damp=0.0, arm_face=None):
     fps = probe_fps(src)
     ref_g = gray_small(ref)
     hm, bm = box_mask(HEAD_BOX, ref_g), box_mask(BODY_BOX, ref_g)
@@ -355,7 +369,15 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
     static = np.clip(matte * still + (1.0 - matte) * bg + 0.5, 0, 255).astype(np.uint8)   # asl montaj (statik kadr)
     gy, gx = np.mgrid[0:OH, 0:OW].astype(np.float32)
     arm_gate = ((1.0 - smoothstep(ARM_X[0], ARM_X[1], gx)) * (1.0 - smoothstep(ARM_Y[0], ARM_Y[1], gy)))[..., None]
+    g0, g1, g2, g3 = ARM_GHOST
+    ghost2 = (smoothstep(g0 - 20, g0 + 20, gx) * (1.0 - smoothstep(g1 - 12, g1 + 12, gx)) *
+              smoothstep(g2 - 30, g2 + 30, gy) * (1.0 - smoothstep(g3 - 30, g3 + 30, gy))).astype(np.float32)
+    thr_lo = ARM_THR[0] + (ARM_GHOST_THR[0] - ARM_THR[0]) * ghost2       # tushirilgan qo'l o'rnida sezgirroq
+    thr_hi = ARM_THR[1] + (ARM_GHOST_THR[1] - ARM_THR[1]) * ghost2
+    ghost = ghost2[..., None]
     zone = face.sum(2, keepdims=True)
+    # qo'l maskasi yuz zonasidan tashqarida: katta (salom) yuz maskasi ko'tarilgan qo'l barmoqlarini ham yutib yubormasin
+    arm_zone = (arm_face if arm_face is not None else face).sum(2, keepdims=True)
     if crop:
         cx0, cy0, cx1, cy1 = crop
         kept = []
@@ -377,11 +399,11 @@ def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False
         face_w = face[..., :1] + face[..., 1:] * move
         if arm:
             d = cv2.GaussianBlur(np.abs(up - still).max(2), (0, 0), 3)
-            a = cv2.GaussianBlur(cv2.dilate(smoothstep(ARM_THR[0], ARM_THR[1], d), np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
+            a = cv2.GaussianBlur(cv2.dilate(smoothstep(thr_lo, thr_hi, d), np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
             # qat'iyroq (yeng izi qolmasin); yuz zonasidan va qo'l bo'lishi mumkin bo'lmagan joydan (tana, son) tashqarida
-            a = np.clip(a * 1.8, 0.0, 1.0) * (1.0 - zone) * arm_gate
+            a = np.clip(a * 1.8, 0.0, 1.0) * (1.0 - arm_zone) * arm_gate
             dyn = np.maximum(face_w, a)
-            cut = matte * (1.0 - a) + key_abs(up) * a             # qo'l konturi kadrning o'z rangidan
+            cut = matte * (1.0 - a) + key_abs(up, ghost) * a      # qo'l konturi kadrning o'z rangidan
         else:
             dyn, cut = face_w, matte
         fg = still * (1.0 - dyn) + up * dyn
@@ -441,7 +463,8 @@ def main():
     still = cv2.resize(full, (OW, OH), interpolation=cv2.INTER_AREA).astype(np.float32)  # montaj uchun (chiqish o'lchamida)
     matte = cv2.resize(cv2.imread(matte_path, 0), (OW, OH), interpolation=cv2.INTER_AREA).astype(np.float32)[..., None] / 255.0
     bg = backdrop(glow)
-    face = exclude_collar(face_mask(), still)
+    faces = {n: exclude_collar(face_mask(*FACE_SCALE.get(n, (1.0, 1.0))), still) for n in KEEP}
+    face_base = exclude_collar(face_mask(), still)
     if not dry:
         write_rig(out, still, matte, bg)
     for name in KEEP:
@@ -452,8 +475,8 @@ def main():
             print(f"o'tkazildi (yo'q): {src}")
             continue
         print(f"{name}:")
-        build(src, os.path.join(out, f"{name}_raw.mp4"), ref, still, matte, bg, face, keep[name], body_keep[name], name in ARM, dry,
-              crop=CROPS.get(name), seq=seqs.get(name), damp=DAMP.get(name, 0.0))
+        build(src, os.path.join(out, f"{name}_raw.mp4"), ref, still, matte, bg, faces[name], keep[name], body_keep[name], name in ARM, dry,
+              crop=CROPS.get(name), seq=seqs.get(name), damp=DAMP.get(name, 0.0), arm_face=face_base)
 
 
 if __name__ == "__main__":

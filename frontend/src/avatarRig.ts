@@ -9,7 +9,7 @@
  * Avatar fayllari manzili. nginx /avatar/ ni keshlaydi: fayl nomi o'zgarmay mazmuni o'zgarsa (idle.mp4 avval to'liq kadr edi, endi
  * yuz qirqimi), kesh eski faylni yangi kod bilan aralashtirib yuborardi. Avatar fayllari qayta tayyorlanganda ASSET_V ni oshiring.
  */
-export const ASSET_V = "4";
+export const ASSET_V = "5";
 export const assetUrl = (file: string) => `/avatar/${file}?v=${ASSET_V}`;
 
 export const FRAME_W = 1080;
