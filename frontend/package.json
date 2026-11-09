@@ -9,7 +9,6 @@
     "preview": "vite preview",
     "test": "vitest run",
     "record:avatar": "node scripts/record-avatar.mjs",
-    "process:avatar": "node scripts/process-avatar-clips.mjs",
     "test:transitions": "node scripts/test-avatar-transitions.mjs"
   },
   "dependencies": {
