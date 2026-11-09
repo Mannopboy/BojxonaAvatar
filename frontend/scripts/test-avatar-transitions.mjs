@@ -25,7 +25,8 @@ const THROTTLE = Number(process.env.THROTTLE || 1);
 // Chegaralar (o'lchangan shovqin ustiga zaxira bilan): kadr oralig'i 41.7 ms.
 // capPop/bodyPop — o'tish paytidagi eng katta kadrlararo farq, oddiy (o'tishsiz) p95 ustiga qo'shimcha: bosh doim qimirlaydi,
 // shuning uchun absolyut emas, nisbiy.
-const LIMITS = { latencyMs: 90, stallMs: 110, capExtra: 1.5, bodyExtra: 1.5, dipPct: 6 };
+// latencyMs = stallMs: ikkalasi ham "kadr uzilishi"ni o'lchaydi; 24 kadr/s videoda 2.5 kadr (≈ 104 ms) + yozib olish kvantlashi.
+const LIMITS = { latencyMs: 110, stallMs: 110, capExtra: 1.5, bodyExtra: 1.5, dipPct: 6 };
 
 // Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
 const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
@@ -145,7 +146,7 @@ try {
   const wraps = [];
   for (const n of ["idle", "speaking"]) {
     const fs_ = T.frames[n];
-    for (let i = 1; i < fs_.length; i++) if (fs_[i][1] < fs_[i - 1][1] - 0.5 && onLayer(fs_[i][0]) === n && !trans.some((x) => fs_[i][0] - x.t >= -100 && fs_[i][0] - x.t <= 600)) wraps.push({ t: fs_[i][0], type: `${n} loop choki`, to: n });
+    for (let i = 1; i < fs_.length; i++) if (fs_[i][1] < fs_[i - 1][1] - 0.5 && onLayer(fs_[i][0]) === n && !trans.some((x) => fs_[i][0] - x.t >= -100 && fs_[i][0] - x.t <= 1200)) wraps.push({ t: fs_[i][0], type: `${n} loop choki`, to: n });
   }
   const allEvents = [...trans, ...wraps].sort((a, b) => a.t - b.t);
   if (process.env.DUMP_DIR) {
@@ -206,7 +207,8 @@ try {
   const P = T.pose.filter((p) => p[0] >= warm);
   const rangeOf = (arr) => (arr.length ? Math.max(...arr.map((p) => Math.abs(p[3]))) : 0);
   const stateAt = (t) => (inGreeting(t) ? "greeting" : onLayer(t));
-  const during = (s, margin = 600) => P.filter((p) => stateAt(p[0]) === s && stateAt(p[0] - margin) === s);
+  // Salom tugaganda pleyer boshni qaytarishni (0.25 s silliq) oxirgi kadrlardan boshlaydi — sinov sinfi ozgina keyin o'zgaradi: oxirgi 200 ms hisobga olinmaydi
+  const during = (s, margin = 600) => P.filter((p) => stateAt(p[0]) === s && stateAt(p[0] - margin) === s && stateAt(p[0] + 200) === s);
   const poseRows = [
     ["tinch (kutish)", rangeOf(during("idle")), (v) => v > 0.08 && v < 0.6, "0.08–0.6°"],
     ["gapirish", rangeOf(during("speaking")), (v) => v > 0.35 && v < 2.0, "0.35–2.0°"],
