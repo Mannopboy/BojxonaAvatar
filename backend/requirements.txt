@@ -5,4 +5,5 @@ pydantic>=2.12.5
 pydantic-settings>=2.6.1
 python-dotenv==1.0.1
 httpx==0.28.1
-google-genai>=2.24.0
+# google-genai 3.x: Gemini Live connect fails with HTTP 404 (measured; production voice chat broke). Test Live before upgrading.
+google-genai==2.24.0
