@@ -9,7 +9,7 @@
  * Avatar fayllari manzili. nginx /avatar/ ni keshlaydi: fayl nomi o'zgarmay mazmuni o'zgarsa (idle.mp4 avval to'liq kadr edi, endi
  * yuz qirqimi), kesh eski faylni yangi kod bilan aralashtirib yuborardi. Avatar fayllari qayta tayyorlanganda ASSET_V ni oshiring.
  */
-export const ASSET_V = "3";
+export const ASSET_V = "4";
 export const assetUrl = (file: string) => `/avatar/${file}?v=${ASSET_V}`;
 
 export const FRAME_W = 1080;
@@ -37,9 +37,10 @@ export interface Pose {
  */
 export function headPose(t: number, speech: number, calm = 1): Pose {
   const s = Math.min(1, Math.max(0, speech));
-  const rot = calm * (0.28 * Math.sin(0.89 * t + 0.6) + 0.16 * Math.sin(1.57 * t + 2.1) + s * (0.85 * Math.sin(3.9 * t + 1.3) + 0.45 * Math.sin(6.7 * t + 0.4)));
-  const dx = calm * (1.1 * Math.sin(0.74 * t + 1.0) + s * 1.6 * Math.sin(3.1 * t + 2.2));
-  const dy = calm * (0.6 * Math.sin(1.31 * t) + s * 1.5 * Math.sin(4.4 * t + 0.3));
+  // Amplituda kichik: avatar katta (yaqinlashtirib) ko'rilganda ham "ortiqcha qimirlash" bo'lmasin (≈ ±0.2° tinch, ±0.7° gapirganda).
+  const rot = calm * (0.14 * Math.sin(0.89 * t + 0.6) + 0.08 * Math.sin(1.57 * t + 2.1) + s * (0.30 * Math.sin(3.9 * t + 1.3) + 0.16 * Math.sin(6.7 * t + 0.4)));
+  const dx = calm * (0.6 * Math.sin(0.74 * t + 1.0) + s * 0.9 * Math.sin(3.1 * t + 2.2));
+  const dy = calm * (0.35 * Math.sin(1.31 * t) + s * 0.8 * Math.sin(4.4 * t + 0.3));
   return { dx, dy, rot };
 }
 

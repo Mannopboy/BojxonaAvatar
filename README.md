@@ -59,7 +59,8 @@ Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga
 | `greeting` (6 s) | to'liq kadr: qo'li bilan salom, og'zi harakatda; boshi va oxiri qatlamlarga piksel-piksel teng | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) |
 
 **Bosh qotib turmaydi.** Yuz videolari bosh qatlami **ichida** turadi, shuning uchun bosh bilan birga yuradi (`src/avatarRig.ts` — `headPose`):
-tinch holatda ≈ ±0.4° sekin tebranish, gapirganda ≈ ±1.6° irg'ash (ovoz balandligiga qarab), salom paytida qotadi, kadrdan kadrga hamisha silliq.
+tinch holatda ≈ ±0.2°, gapirganda ≈ ±0.6° (ovoz balandligiga qarab), salom paytida qotadi, kadrdan kadrga ≤ 0.05°. Amplituda ataylab kichik:
+avatar yaqinlashtirib (1:1 va kattaroq) ko'rilganda ham «ortiqcha qimirlash» bo'lmasin (avval ±1.6° edi — haddan tashqari deb topildi).
 Furajka va soch AI videodan emas, asl rasmdan, shuning uchun titramaydi va qiyshaymaydi.
 
 **Og'iz faqat ovoz bor paytda qimirlaydi.** Brauzer pleyerning haqiqiy ovoz balandligini o'lchaydi (`liveAudio` level, `src/AvatarVideo.tsx`):
@@ -72,7 +73,10 @@ berilgan ovozga moslab chizilgan — jonli Gemini so'zlariga hece-hece sinxron *
 almashmaydi (o'lchangan: tana kadrlararo farqi 0.0). Salom — to'liq kadr, lekin boshi va oxiri qatlamlarga piksel-piksel teng, shuning
 uchun uning xira-o'tishi ham sezilmaydi. Yuz videodan **farq maskasi** bilan olinadi: yuz markazi (qosh, ko'z, burun, og'iz) har doim videodan,
 yonoq/jag' chizig'i — faqat video asl rasmdan farq qilgan joyda, sirg'alar — doim asl rasmdan. (Avval asl rasmning mayda tafsiloti
-siljigan qosh ustiga qo'yilardi: «ikki qosh», «ikki sirg'a» — bir video ikkinchisining ustiga tushgandek.)
+siljigan qosh ustiga qo'yilardi: «ikki qosh», «ikki sirg'a» — bir video ikkinchisining ustiga tushgandek.) Salomda qo'l maskasi faqat qo'l
+joylashgan hududda (tana, galstuk, yelka — asl rasm; avval tananing mayda siljishi ham maskaga tushib «ikki galstuk» bergan).
+AI ifodasi ortiqcha (lablar cho'chchayadi, keng tabassum): pastki yuzda ifoda optik oqim bilan 50% ga yumshatilgan (ko'z va qosh tegilmaydi —
+pirpirash saqlanadi), yuz klipi kadrlari vaqt bo'yicha silliqlangan (AI har kadrni qayta chizadi, teri va lab titraydi); kadrlararo o'zgarish ~28% kam.
 AI video bo'lmaganda ham shunday qilish shart: AI har kadrni qayta chizadi — furajkani qiyshaytiradi, kiyim teksturasini "titratadi",
 rangni klipdan klipga o'zgartiradi, qora sochni fon bilan birlashtiradi.
 
@@ -109,7 +113,9 @@ rangni klipdan klipga o'zgartiradi, qora sochni fon bilan birlashtiradi.
    npm run build && npm run test:transitions         # THROTTLE=4 — zaif noutbuk; HEADFUL=1 — oyna bilan; DUMP_DIR=… — o'tish kadrlarini saqlash
    ```
    O'lchangan (CPU 1× va 4×): tana kadrlararo farqi 0.0, furajka/soch — oddiy qimirlashdan ≤ 1.5 ortiq, yorqinlik tushishi ≤ 1.3%, kadr qotishi
-   ≤ 67 ms (2 kadr), boshning burilishi tinch holatda 0.43°, gapirganda 1.60°, salomda 0°, kadrdan kadrga ≤ 0.11°.
+   ≤ 67 ms (2 kadr), boshning burilishi tinch holatda 0.21°, gapirganda 0.61°, salomda 0°, kadrdan kadrga ≤ 0.04°.
+   Sinov sizning ekraningizga ham mos bo'lishi uchun ekran yozuvini (`Screen Recording …mp4`) kadrma-kadr ko'zdan kechiring: ffmpeg bilan kadrlarga
+   ajratib, bosh/tana hududlarining kadrlararo farqini o'lchash «ikki qatlam» va titrashni eng ishonchli ko'rsatadi.
 
 **Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi** va
 qatlamli pleyer (`base.jpg`, `head.webp`, yuz qirqimlari) bilan **mos emas**: u to'liq kadrli kliplar yozadi. Faqat arxiv uchun.

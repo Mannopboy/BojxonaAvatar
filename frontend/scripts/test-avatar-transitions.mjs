@@ -210,13 +210,13 @@ try {
   // Salom tugaganda pleyer boshni qaytarishni (0.25 s silliq) oxirgi kadrlardan boshlaydi — sinov sinfi ozgina keyin o'zgaradi: oxirgi 200 ms hisobga olinmaydi
   const during = (s, margin = 600) => P.filter((p) => stateAt(p[0]) === s && stateAt(p[0] - margin) === s && stateAt(p[0] + 200) === s);
   const poseRows = [
-    ["tinch (kutish)", rangeOf(during("idle")), (v) => v > 0.08 && v < 0.6, "0.08–0.6°"],
-    ["gapirish", rangeOf(during("speaking")), (v) => v > 0.35 && v < 2.0, "0.35–2.0°"],
+    ["tinch (kutish)", rangeOf(during("idle")), (v) => v > 0.06 && v < 0.3, "0.06–0.3°"],
+    ["gapirish", rangeOf(during("speaking")), (v) => v > 0.2 && v < 0.8, "0.2–0.8°"],
     ["salom (qotgan)", rangeOf(during("greeting", 700)), (v) => v < 0.02, "< 0.02°"],
   ];
   let jump = 0;
   for (let i = 1; i < P.length; i++) { const dt = Math.max(1, P[i][0] - P[i - 1][0]); jump = Math.max(jump, (Math.abs(P[i][3] - P[i - 1][3]) / dt) * 16.7); }
-  poseRows.push(["silliqlik (eng katta sakrash/kadr)", jump, (v) => v < 0.2, "< 0.2°/kadr"]);
+  poseRows.push(["silliqlik (eng katta sakrash/kadr)", jump, (v) => v < 0.06, "< 0.06°/kadr"]);
   console.log("\nbosh harakati                              o'lchandi   chegara      natija");
   for (const [name, v, test, lim] of poseRows) {
     const ok = test(v);

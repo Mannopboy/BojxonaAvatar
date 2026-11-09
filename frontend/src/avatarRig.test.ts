@@ -8,25 +8,25 @@ describe("headPose", () => {
   it("tinch holatda harakat juda kichik (qotib turmaydi, lekin sakramaydi)", () => {
     const s = samples(0);
     const maxRot = Math.max(...s.map((p) => Math.abs(p.rot)));
-    expect(maxRot).toBeGreaterThan(0.1); // jonli
-    expect(maxRot).toBeLessThan(0.5);
-    expect(Math.max(...s.map((p) => Math.abs(p.dx)))).toBeLessThan(2.5);
+    expect(maxRot).toBeGreaterThan(0.08); // jonli
+    expect(maxRot).toBeLessThan(0.3);
+    expect(Math.max(...s.map((p) => Math.abs(p.dx)))).toBeLessThan(1.2);
   });
 
-  it("gapirganda harakat kattaroq, lekin tabiiy chegarada (burilish < 2°, siljish < 6 px)", () => {
+  it("gapirganda harakat kattaroq, lekin ortiqcha emas (burilish < 0.8°, siljish < 2.5 px)", () => {
     const quiet = Math.max(...samples(0).map((p) => Math.abs(p.rot)));
     const talk = samples(1);
     const maxRot = Math.max(...talk.map((p) => Math.abs(p.rot)));
     expect(maxRot).toBeGreaterThan(quiet);
-    expect(maxRot).toBeLessThan(2);
-    expect(Math.max(...talk.map((p) => Math.hypot(p.dx, p.dy)))).toBeLessThan(6);
+    expect(maxRot).toBeLessThan(0.8);
+    expect(Math.max(...talk.map((p) => Math.hypot(p.dx, p.dy)))).toBeLessThan(2.5);
   });
 
   it("har doim silliq: kadrdan kadrga (60 Hz) sakrash yo'q", () => {
     const s = samples(1);
     for (let i = 1; i < s.length; i++) {
-      expect(Math.abs(s[i].rot - s[i - 1].rot)).toBeLessThan(0.15); // daraja/kadr (≈ 9°/s dan sekin)
-      expect(Math.hypot(s[i].dx - s[i - 1].dx, s[i].dy - s[i - 1].dy)).toBeLessThan(0.3); // px/kadr
+      expect(Math.abs(s[i].rot - s[i - 1].rot)).toBeLessThan(0.05); // daraja/kadr (≈ 3°/s dan sekin)
+      expect(Math.hypot(s[i].dx - s[i - 1].dx, s[i].dy - s[i - 1].dy)).toBeLessThan(0.15); // px/kadr
     }
   });
 
