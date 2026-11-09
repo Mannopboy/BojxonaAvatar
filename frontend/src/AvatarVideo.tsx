@@ -8,10 +8,9 @@
 // Ovoz bor → speaking, ovoz VOICE_HOLD_MS dan ko'p jim → idle. Shu tariqa so'zlar/jumlalar orasidagi pauzalarda va
 // javob tugagach og'iz yopiladi (Gemini nutqida pauzalar vaqtning ~15–20% ini tashkil etadi).
 //
-// idle va speaking BIRGA yurib turadi — almashtirish xira-o'tish (crossfade) bilan, seek/kechikishsiz (uzunliklari
-// har xil: 4 s va 14 s, shuning uchun fazalari birinchi siklda mos, keyin siljiydi; kadr deyarli qimirlamagani uchun sezilmaydi).
-// Salom paytida ular boshiga qaytarilib to'xtatiladi; salom tugagach ikkalasi 0 dan BIRGA boshlanadi
-// (uchala klip ham bir xil start kadrdan boshlanib, shu kadrga qaytadi: salom oxiri = idle boshi).
+// idle va speaking DOIM BIRGA yurib turadi (salom paytida ham) — almashtirish xira-o'tish (crossfade) bilan, seek va qayta
+// ishga tushirishsiz (to'xtatilgan klipni qayta boshlash ~100 ms qotish bergan). Kliplar orasida tana, furajka va soch
+// piksel-piksel bir xil (asl kadr), farq faqat yuzda (build-avatar-clips.py), shuning uchun fazalari ahamiyatsiz.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 
 type Phase = "idle" | "speaking" | "greeting";
@@ -57,17 +56,13 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
   const timers = useRef<{ fade?: number; greet?: number }>({});
   const [view, setView] = useState<{ phase: Phase; prev: Phase | null }>({ phase: "idle", prev: null });
 
-  /** Xira-o'tish tugagach: eski qatlam olib tashlanadi, ishlatilmayotgan klip(lar) boshiga qaytarilib to'xtatiladi. */
+  /** Xira-o'tish tugagach: eski qatlam olib tashlanadi, ishlatilmayotgan salom boshiga qaytarilib to'xtatiladi. */
   const finishFade = useCallback(() => {
     window.clearTimeout(timers.current.fade);
     setView((s) => (s.prev ? { ...s, prev: null } : s));
-    const v = videos.current;
-    if (phaseRef.current === "greeting") {
-      park(v.idle); // salom paytida loop'lar boshiga qaytarilib to'xtatiladi — salom oxiriga ulanish uchun
-      park(v.speaking);
-    } else {
-      park(v.greeting);
-    }
+    // idle va speaking HECH QACHON to'xtatilmaydi: to'xtatilgan klipni qayta ishga tushirish ~100 ms qotish bergan (o'lchangan).
+    // Tana hamma kliplarda bir xil rasm bo'lgani uchun ularning fazasi (qaysi kadrda ekani) ahamiyatsiz.
+    if (phaseRef.current !== "greeting") park(videos.current.greeting);
   }, []);
 
   /** Qatlamni almashtiradi: yangisi ustida xira-o'tish bilan paydo bo'ladi, eskisi xira-o'tish tugaguncha ko'rinib turadi. */
@@ -80,7 +75,7 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
       if (v.greeting) v.greeting.currentTime = 0;
       play(v.greeting);
     } else {
-      // ikkala loop birga yuradi (salomdan keyin to'xtatilgan bo'lsa — ikkalasi 0 dan birga boshlanadi)
+      // ikkala loop doim yuradi (brauzer avtoplayni bloklagan bo'lsa — shu yerda ishga tushadi)
       play(v.idle);
       play(v.speaking);
     }
@@ -160,7 +155,6 @@ export function AvatarVideo({ active, levelRef, greetKey }: Props) {
           preload="auto"
           loop={name !== "greeting"}
           autoPlay={name !== "greeting"}
-          poster={name === "idle" ? "/avatar/idle-poster.jpg" : undefined}
           disablePictureInPicture
           tabIndex={-1}
           onEnded={name === "greeting" ? afterGreeting : undefined}

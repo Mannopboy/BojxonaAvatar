@@ -58,7 +58,9 @@ body {
 
 /* Scene — avatar video. Video foni sayt foniga (#05070d) tushirilgan (scripts/process-avatar-clips.mjs), shunda video chetlari sezilmaydi. */
 .scene { position: relative; min-height: 0; background: var(--bg); }
-.avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg); isolation: isolate; }
+/* Birinchi kadr yuklanguncha ko'rinadigan rasm — <video poster> EMAS: poster video boshiga qaytganda (loop, seek) har safar
+   bir kadr ko'rinib, rangi va tafsiloti videodan farq qilgani uchun miltillash bergan (kutish klipida har 4 soniyada). */
+.avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg) url("/avatar/idle-poster.jpg") center / contain no-repeat; isolation: isolate; }
 .avatar-layer {
   position: absolute; inset: 0; width: 100%; height: 100%;
   /* Yashirin qatlam opacity: 0 emas, 0.01: aks holda brauzer uni chizmay qo'yadi va ko'rinishi bilan bir kadr qora chiqishi mumkin.

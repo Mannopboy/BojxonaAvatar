@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
-"""Xom avatar kliplarini bitta "qotirilgan" holatga keltiradi: kliplar orasidagi almashish bitta 3D model kabi sezilmasin.
+"""Xom (AI) avatar kliplaridan saytdagi kliplarni yig'adi: almashishlar bitta 3D model kabi sezilmasin.
 
-AI video xizmati har klipni alohida yaratadi: bosh va tana sekin siljiydi (kutish klipida gapirishdagidan ~2 baravar ko'p),
-rang berilishi (ayniqsa yuz yorqinligi) klipdan klipga farq qiladi. Kliplar almashganda bu "sakrash" va rang o'zgarishi
-bo'lib ko'rinadi. Bu vosita har kadrni asl start kadrga (reference) moslaydi:
+AI video xizmati har klipni alohida yaratadi va har kadrni qayta chizadi: bosh va tana sekin siljiydi, rang farq qiladi,
+kiyim va soch teksturasi "titraydi", furajka qiyshayadi (asl kadrda tekis!), qora soch fon bilan qo'shilib ketadi.
+Kliplar almashganda bu sakrash, miltillash va xiralik bo'lib ko'rinadi. Bu vosita har kadrni ASL start kadrga (reference)
+tayanib yig'adi:
 
   1. HOLAT: har kadr uchun bosh (furajkadan iyakkacha) va tananing (ko'krak) siljishi reference'ga nisbatan optik oqimning
      MEDIANASI bilan o'lchanadi (og'iz/ko'z kabi kichik mahalliy o'zgarish medianaga ta'sir qilmaydi), vaqt bo'yicha tekislanadi
-     va bekor qilinadi. Qancha harakat QOLISHI bosh uchun `--keep`, tana uchun `--body-keep` bilan beriladi (0 = qotgan,
-     1 = o'zgarishsiz). Ko'z qisish va og'iz harakati saqlanadi.
+     va bekor qilinadi (`--keep` bosh uchun, `--body-keep` tana uchun: qancha harakat QOLISHI; 0 = qotgan, 1 = o'zgarishsiz).
   2. RANG: start/oxirgi kadrlar (holati asl kadrga teng) asl kadr bilan solishtirilib, sekin o'zgaradigan rang-yorqinlik
-     xaritasi (yuz yorqinroq, ko'ylak ko'kroq...) topiladi va butun klipga qo'llanadi. Tafsilotlar o'zgarmaydi.
-  3. STATIK TANA: bo'yindan pastdagi tana kliplarda start kadrning o'zi bilan almashtiriladi (idle, speaking — butun klip
-     bo'yicha; greeting — faqat boshi va oxirida). Kiyim teksturasi klipdan klipga farq qilmaydi, almashishda faqat bosh
-     (og'iz, ko'z) o'zgaradi. `--no-static-body` bilan o'chiriladi.
+     xaritasi topiladi va butun klipga qo'llanadi. Tafsilotlar o'zgarmaydi.
+  3. MONTAJ: tana, furajka, soch, quloq — hamma kadrda ASL KADRNING o'zi (qimirlamaydi, o'tkir, AI titrog'i yo'q);
+     videodan faqat YUZ ellipsi (ko'z, qosh, og'iz, iyak) olinadi. Greeting'da qo'shimcha: asl kadrdan sezilarli farq
+     qiladigan joy (ko'tarilgan qo'l) ham videodan olinadi. Natijada kliplar orasida farq faqat yuzda bo'ladi.
+  4. KONTUR VA FON: odam konturi (make-avatar-matte.py, soch bilan) bo'yicha fon sayt foni (#05070d) ga almashtiriladi.
+     Fon boshning orqasida sal yoritilgan (--glow): qop-qora soch sof qora fonda ko'rinmay qolardi ("kal" ko'rinish).
 
-Natija `<chiqish>/<nom>_raw.mp4` (deyarli yo'qotishsiz) — keyin `npm run process:avatar` shu papkada ishlaydi.
+Natija `<chiqish>/<nom>_raw.mp4` (1080x1920, deyarli yo'qotishsiz, fon tayyor) — keyin `npm run process:avatar -- <papka> --no-key`.
 
-  python scripts/stabilize-avatar-clips.py <xom-papka> <reference.png> [chiqish-papka] [--keep=idle=0.12,...] [--body-keep=idle=0.03,...] [--only=speaking] [--dry] [--no-static-body]
+  python scripts/build-avatar-clips.py <xom-papka> <start-kadr.png> <kontur.png> [chiqish-papka]
+         [--keep=idle=0.05,...] [--body-keep=idle=0.03,...] [--glow=14,15,18] [--only=speaking] [--dry]
 
-Kerak: python3, numpy, opencv-python; ffmpeg (PATH'da yoki FFMPEG_PATH). Kadr o'lchami 720x1280 deb olinadi.
+Kerak: python3, numpy, opencv-python; ffmpeg (PATH'da yoki FFMPEG_PATH). Xom klip o'lchami 720x1280 deb olinadi.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,30 +35,29 @@ import cv2
 import numpy as np
 
 FFMPEG = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg") or "ffmpeg"
-W, H, SC = 720, 1280, 0.5          # kadr; ECC kichraytirilgan kadrda hisoblanadi
-# Qolgan harakat ulushi (0 = qotgan, 1 = o'zgarishsiz). Bosh ham, tana ham deyarli qotiriladi — kliplar almashganda 1–2 px
-# siljish ham "sakrash" bo'lib ko'rinadi (furajka chetida ikki konturga o'xshaydi); faqat og'iz va ko'z o'zgaradi.
-# Salomda qo'l harakati saqlanishi kerak.
-KEEP = {"idle": 0.05, "speaking": 0.10, "greeting": 0.50}
-BODY_KEEP = {"idle": 0.03, "speaking": 0.03, "greeting": 0.40}
-# Bo'yindan pastdagi TANA hamma holatda BIR XIL statik rasm (start kadr): har klip alohida AI render qilingani uchun kiyim
-# teksturasi klipdan klipga ozgina farq qiladi va almashishda mayda miltillash bo'lib ko'rinadi (ayniqsa katta ekranda).
-# Faqat bosh (og'iz, ko'z) videodan olinadi. "full" — har kadrda; "edges" — klipning boshi/oxirida (salomda qo'l harakati
-# saqlanadi, lekin kutishga ulanadigan joyda tana piksel-piksel bir xil); None — o'chirilgan.
-STATIC_BODY = {"idle": "full", "speaking": "full", "greeting": "edges"}
-EDGE_FRAMES = 10
+W, H, SC = 720, 1280, 0.5          # xom klip; siljish hisoblari kichraytirilgan (SC) kadrda
+OW, OH = 1080, 1920                # chiqish
+# Qolgan harakat ulushi (0 = qotgan, 1 = o'zgarishsiz). Bosh va tana deyarli qotiriladi: kliplar almashganda 1–2 px siljish
+# ham "sakrash" bo'lib ko'rinadi. Salomda qo'l ko'tarilishi uchun biroz harakat qolishi kerak.
+KEEP = {"idle": 0.05, "speaking": 0.10, "greeting": 0.15}
+BODY_KEEP = {"idle": 0.03, "speaking": 0.03, "greeting": 0.15}
+ARM = {"greeting"}                     # asl kadrdan farq qiladigan joy (qo'l) videodan olinadigan kliplar
 HEAD_BOX = (0.045, 0.19, 0.40, 0.60)   # (qator0, qator1, ustun0, ustun1) kadr ulushida: furajkadan iyakkacha (og'iz medianaga ta'sir qilmaydi)
 BODY_BOX = (0.27, 0.50, 0.38, 0.62)    # ko'krak: tugmalar, yoqa, galstuk (qo'llar YO'Q — salomda qo'l harakatlanadi)
 NECK = (0.17, 0.25)                    # bosh siljishi shu oraliqda tana siljishiga o'tadi
-LIMIT_PX, LIMIT_RAD = 15.0, 0.04       # AI klipdagi haqiqiy siljish bundan kichik; kattasi — ECC xatosi
+LIMIT_PX, LIMIT_RAD = 15.0, 0.04       # AI klipdagi haqiqiy siljish bundan kichik; kattasi — o'lchash xatosi
 SIGMA_T = 1.2                          # siljish parametrlarini vaqt bo'yicha tekislash (kadr)
 SIGMA_COLOR = 25                       # rang xaritasi qanchalik "sekin" (px): tafsilot emas, yorug'lik
 EDGE = 6                               # rang o'lchanadigan boshi/oxiri kadrlar soni (holati asl kadrga teng)
+# Yuz ellipsi (kadr ulushida): qoshdan iyakkacha + og'iz ochilganda iyak tushadigan joy. Furajka, soch, quloq — ASL kadrdan.
+FACE = dict(cx=0.50, cy=0.150, rx=0.066, ry_up=0.036, ry_dn=0.055)
+DETAIL_SIGMA = 2.5                     # "past chastota" chegarasi (px, chiqish o'lchamida): shundan mayda tafsilot asl kadrdan
+BG = (5, 7, 13)                        # styles.css :root --bg (RGB)
+GLOW = dict(cx=0.50, cy=0.125, sx=0.13, sy=0.075, add=(14, 15, 18))  # boshning orqasidagi yengil yorug'lik (RGB qo'shimcha)
 
 
 def probe_fps(path):
     info = subprocess.run([FFMPEG, "-hide_banner", "-i", path], capture_output=True, text=True).stderr
-    import re
     m = re.search(r", ([\d.]+) fps", info)
     return float(m.group(1)) if m else 24.0
 
@@ -78,10 +81,10 @@ def read_frames(path):
 class Writer:
     def __init__(self, path, fps):
         self.p = subprocess.Popen(
-            [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{W}x{H}",
+            [FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{OW}x{OH}",
              "-r", str(fps), "-i", "-", "-vf", "scale=out_range=tv:out_color_matrix=bt709,format=yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
-             "-c:v", "libx264", "-preset", "medium", "-crf", "8", "-an", "-y", path],
+             "-c:v", "libx264", "-preset", "medium", "-crf", "10", "-an", "-y", path],
             stdin=subprocess.PIPE)
 
     def write(self, frame):
@@ -106,12 +109,12 @@ def box_mask(box, ref_g):
 
 
 def center(box):
-    """Quti markazi, to'liq o'lchamda (x, y)."""
+    """Quti markazi, xom klip o'lchamida (x, y)."""
     return np.array([(box[2] + box[3]) / 2 * W, (box[0] + box[1]) / 2 * H], np.float64)
 
 
 def estimate(ref_g, frame_g, mask, c):
-    """(theta, dx, dy) yoki None. Siljish — reference'dan kadrgacha optik oqimning MEDIANASI mask ichida (to'liq o'lchamda px):
+    """(theta, dx, dy) yoki None. Siljish — reference'dan kadrgacha optik oqimning MEDIANASI mask ichida (xom o'lchamda px):
     og'iz/ko'z kabi kichik mahalliy o'zgarish medianaga ta'sir qilmaydi. Burilish hisobga olinmaydi (theta = 0)."""
     if mask.sum() < 30:
         return None
@@ -121,8 +124,8 @@ def estimate(ref_g, frame_g, mask, c):
 
 
 def clean(series, name):
-    """ECC ba'zan noto'g'ri yechimga yaqinlashadi (masalan qo'l furajkani to'sganda): bunday kadrlarni rad etib, qo'shnilaridan
-    interpolyatsiya qiladi. Rad etiladi: yaqinlashmagan, jismonan mumkin bo'lmagan (> LIMIT) yoki qo'shnilar medianasidan uzoq."""
+    """Optik oqim ba'zan noto'g'ri natija beradi (masalan qo'l furajkani to'sganda): bunday kadrlarni rad etib, qo'shnilaridan
+    interpolyatsiya qiladi. Rad etiladi: hisoblanmagan, jismonan mumkin bo'lmagan (> LIMIT) yoki qo'shnilar medianasidan uzoq."""
     a = np.array([(np.nan,) * 3 if s is None else s for s in series], np.float64)
     n = len(a)
     bad = np.isnan(a).any(1) | (np.abs(a[:, 0]) > LIMIT_RAD) | (np.abs(a[:, 1:]) > LIMIT_PX).any(1)
@@ -167,8 +170,49 @@ def align(frame, head_m, body_m, weight):
     return head * weight + body * (1.0 - weight)
 
 
-def stabilize(src, dst, ref, keep, body_keep, static_mode, dry=False):
+def smoothstep(a, b, x):
+    t = np.clip((x - a) / (b - a), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def face_mask():
+    """Yuz ellipsi, yumshoq chetli: 1 = videodan, 0 = asl kadrdan. (OH, OW, 1)."""
+    yy, xx = np.mgrid[0:OH, 0:OW].astype(np.float32)
+    u = (xx / OW - FACE["cx"]) / FACE["rx"]
+    dy = yy / OH - FACE["cy"]
+    v = np.where(dy < 0, dy / FACE["ry_up"], dy / FACE["ry_dn"])
+    return (1.0 - smoothstep(0.85, 1.2, np.sqrt(u * u + v * v)))[..., None].astype(np.float32)
+
+
+def exclude_collar(face, still):
+    """Oq yoqa asl kadrdan qolsin: videodagi yoqa chizig'i bir necha px siljigan, ellipsga kirsa pushti yo'l bo'lib ko'rinadi."""
+    lum = still.mean(2)
+    chroma = still.max(2) - still.min(2)
+    rows = (np.arange(OH) / OH)[:, None]
+    shirt = ((lum > 165) & (chroma < 24) & (rows > 0.182) & (rows < 0.26)).astype(np.uint8)
+    shirt = cv2.GaussianBlur(cv2.dilate(shirt, np.ones((9, 9), np.uint8)).astype(np.float32), (0, 0), 3)[..., None]
+    return face * (1.0 - np.clip(shirt, 0.0, 1.0))
+
+
+def backdrop(add):
+    """Sayt foni + boshning orqasida yengil yorug'lik (BGR, float32). Hamma kliplarda bir xil."""
+    yy, xx = np.mgrid[0:OH, 0:OW].astype(np.float32)
+    g = np.exp(-(((xx / OW - GLOW["cx"]) / GLOW["sx"]) ** 2 + ((yy / OH - GLOW["cy"]) / GLOW["sy"]) ** 2) / 2)[..., None]
+    img = np.array(BG[::-1], np.float32) + g * np.array(add[::-1], np.float32)
+    rng = np.random.default_rng(7)  # qat'iy urug': fon hamma kliplarda piksel-piksel bir xil
+    return img + (rng.random((OH, OW, 1), dtype=np.float32) - 0.5) * 1.6  # ~±0.8 daraja: gradient halqalari sezilmasin
+
+
+def key_abs(img):
+    """Kadrning o'z rangidan fon belgisi: to'q VA rangsiz piksellar fon (faqat harakatlanuvchi qo'l uchun; soch uchun kontur)."""
+    lum = img.mean(2)
+    chroma = img.max(2) - img.min(2)
+    return np.maximum(smoothstep(30, 44, lum), smoothstep(7, 13, chroma))[..., None]
+
+
+def build(src, dst, ref, still, matte, bg, face, keep, body_keep, arm, dry=False):
     fps = probe_fps(src)
+    still_lo = cv2.GaussianBlur(still, (0, 0), DETAIL_SIGMA)
     ref_g = gray_small(ref)
     hm, bm = box_mask(HEAD_BOX, ref_g), box_mask(BODY_BOX, ref_g)
     hc, bc = center(HEAD_BOX), center(BODY_BOX)
@@ -189,9 +233,9 @@ def stabilize(src, dst, ref, keep, body_keep, static_mode, dry=False):
     head_s, body_s = smooth(head_p), smooth(body_p)
     drift = lambda s: np.abs(np.asarray(s)[:, 1:]).max()
     print(f"  {n} kadr; eng katta siljish (px) bosh {drift(head_p):.1f}, tana {drift(body_p):.1f}; harakat qoladi: bosh {keep:.0%}, tana {body_keep:.0%}")
-
     if dry:
         return
+
     # Rang xaritasi: holati asl kadrga teng kadrlar (boshi + oxiri) o'rtachasi → asl kadr
     edge = first + list(last)
     idx = list(range(EDGE)) + list(range(n - len(last), n))
@@ -203,26 +247,33 @@ def stabilize(src, dst, ref, keep, body_keep, static_mode, dry=False):
     gain = 1.0 + fig * (gain - 1.0)  # faqat figura ustida
     print("  rang kuchaytirish (B,G,R) figura bo'yicha:", np.round((gain * fig).sum((0, 1)) / fig.sum(), 3))
 
-    # 2-o'tish: moslash + rang (+ statik tana) → yozish
-    still = ref.astype(np.float32)
+    # 2-o'tish: moslash + rang → montaj (asl kadr + yuz [+ qo'l]) → kontur bo'yicha fon → yozish
     w = Writer(dst, fps)
     for k, f in enumerate(read_frames(src)):
-        out = align(f, matrix(head_s[k], keep, hc), matrix(body_s[k], body_keep, bc), weight) * gain
-        if static_mode:
-            fixed = out * weight + still * (1.0 - weight)  # bosh videodan, bo'yindan pasti — start kadrdan
-            if static_mode == "edges":
-                t = float(np.clip(1.0 - min(k, n - 1 - k) / EDGE_FRAMES, 0.0, 1.0))
-                t = t * t * (3.0 - 2.0 * t)  # klipning chetida 1, ichida 0
-                out = t * fixed + (1.0 - t) * out
-            else:
-                out = fixed
-        w.write(np.clip(out + 0.5, 0, 255).astype(np.uint8))
+        al = align(f, matrix(head_s[k], keep, hc), matrix(body_s[k], body_keep, bc), weight) * gain
+        up = cv2.resize(al, (OW, OH), interpolation=cv2.INTER_CUBIC)
+        # Yuz o'tkirligi: 720p video 1080p ga kattalashganda xira. Past chastotalar (shakl, rang) videodan; mayda tafsilot (teri,
+        # kiprik, lab chizig'i) harakatsiz joylarda asl kadrdan, faqat harakatlanayotgan joylarda (ko'z, qosh, og'iz) videodan.
+        lo_v, lo_s = cv2.GaussianBlur(up, (0, 0), DETAIL_SIGMA), still_lo
+        motion = smoothstep(10, 22, cv2.GaussianBlur(np.abs(up - still).max(2), (0, 0), 4))[..., None]
+        up = lo_v + (still - lo_s) * (1.0 - motion) + (up - lo_v) * 1.3 * motion
+        up = np.clip(up, 0, 255)
+        if arm:
+            d = cv2.GaussianBlur(np.abs(up - still).max(2), (0, 0), 3)
+            a = cv2.GaussianBlur(cv2.dilate(smoothstep(12, 22, d), np.ones((9, 9), np.uint8)), (0, 0), 5)[..., None]
+            a = np.clip(a * 1.8, 0.0, 1.0) * (1.0 - face)         # qat'iyroq (yeng izi qolmasin); yuz ellipsidan tashqarida
+            dyn = np.maximum(face, a)
+            cut = matte * (1.0 - a) + key_abs(up) * a             # qo'l konturi kadrning o'z rangidan
+        else:
+            dyn, cut = face, matte
+        fg = still * (1.0 - dyn) + up * dyn
+        w.write(np.clip(cut * fg + (1.0 - cut) * bg + 0.5, 0, 255).astype(np.uint8))
     w.close()
 
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    keep, body_keep, only = dict(KEEP), dict(BODY_KEEP), set(KEEP)
+    keep, body_keep, only, glow = dict(KEEP), dict(BODY_KEEP), set(KEEP), GLOW["add"]
     for a in sys.argv[1:]:
         if a.startswith("--keep=") or a.startswith("--body-keep="):
             target = keep if a.startswith("--keep=") else body_keep
@@ -231,13 +282,20 @@ def main():
                 target[name] = float(val)
         elif a.startswith("--only="):
             only = set(a[7:].split(","))
+        elif a.startswith("--glow="):
+            glow = tuple(float(x) for x in a[7:].split(","))
     dry = "--dry" in sys.argv  # faqat siljishni o'lchaydi (yozmaydi)
-    if len(args) < 2:
+    if len(args) < 3:
         sys.exit(__doc__)
-    raw, ref_path = args[0], args[1]
-    out = args[2] if len(args) > 2 else os.path.join(raw, "stabilized")
+    raw, ref_path, matte_path = args[:3]
+    out = args[3] if len(args) > 3 else os.path.join(raw, "built")
     os.makedirs(out, exist_ok=True)
-    ref = cv2.resize(cv2.imread(ref_path), (W, H), interpolation=cv2.INTER_AREA)
+    full = cv2.imread(ref_path)
+    ref = cv2.resize(full, (W, H), interpolation=cv2.INTER_AREA)                       # siljishni o'lchash uchun
+    still = cv2.resize(full, (OW, OH), interpolation=cv2.INTER_AREA).astype(np.float32)  # montaj uchun (chiqish o'lchamida)
+    matte = cv2.resize(cv2.imread(matte_path, 0), (OW, OH), interpolation=cv2.INTER_AREA).astype(np.float32)[..., None] / 255.0
+    bg = backdrop(glow)
+    face = exclude_collar(face_mask(), still)
     for name in KEEP:
         if name not in only:
             continue
@@ -246,8 +304,7 @@ def main():
             print(f"o'tkazildi (yo'q): {src}")
             continue
         print(f"{name}:")
-        stabilize(src, os.path.join(out, f"{name}_raw.mp4"), ref, keep[name], body_keep[name],
-                  None if "--no-static-body" in sys.argv else STATIC_BODY[name], dry)
+        build(src, os.path.join(out, f"{name}_raw.mp4"), ref, still, matte, bg, face, keep[name], body_keep[name], name in ARM, dry)
 
 
 if __name__ == "__main__":

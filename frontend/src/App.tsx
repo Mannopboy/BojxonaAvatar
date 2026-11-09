@@ -77,9 +77,10 @@ export default function App() {
             Tugatish
           </button>
         )}
-        {!active && !error && (
-          <div className="hint">Tugmani bosing, mikrofonga ruxsat bering va bojxona bo'yicha savolingizni ayting.</div>
-        )}
+        {/* Doim joyida (faqat ko'rinmaydi): paydo bo'lib-yo'qolsa tugmalar bloki balandligi o'zgarib, avatar o'lchami sakrab ketardi */}
+        <div className="hint" style={{ visibility: !active && !error ? "visible" : "hidden" }} aria-hidden={active || !!error}>
+          Tugmani bosing, mikrofonga ruxsat bering va bojxona bo'yicha savolingizni ayting.
+        </div>
       </div>
     </div>
   );
