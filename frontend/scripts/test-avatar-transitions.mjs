@@ -26,7 +26,10 @@ const THROTTLE = Number(process.env.THROTTLE || 1);
 // capPop/bodyPop — o'tish paytidagi eng katta kadrlararo farq, oddiy (o'tishsiz) p95 ustiga qo'shimcha: bosh doim qimirlaydi,
 // shuning uchun absolyut emas, nisbiy.
 // latencyMs = stallMs: ikkalasi ham "kadr uzilishi"ni o'lchaydi; 24 kadr/s videoda 2.5 kadr (≈ 104 ms) + yozib olish kvantlashi.
-const LIMITS = { latencyMs: 110, stallMs: 110, capExtra: 1.5, bodyExtra: 1.5, dipPct: 6 };
+// captureGapMs: ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi (o'lchangan: odatda 33 ms, ba'zan 100–230 ms). Shunday oraliqdagi
+// ikki kadr farqi video nuqsoni emas, yozuv artefakti (bosh va yuz bir vaqtda "sakraydi") — bunday juftliklar hisobga olinmaydi.
+// Haqiqiy uzilishni stallMs (video kadrlari vaqti, rVFC) alohida tekshiradi.
+const LIMITS = { latencyMs: 110, stallMs: 110, capExtra: 1.5, bodyExtra: 1.5, dipPct: 6, captureGapMs: 100 };
 
 // Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
 const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
@@ -124,7 +127,9 @@ try {
     dec.push(f);
   }
   const mad = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
-  const pops = dec.slice(1).map((f, i) => ({ t: f.t, cap: mad(dec[i].cap, f.cap), face: mad(dec[i].face, f.face), body: mad(dec[i].body, f.body) }));
+  const allPops = dec.slice(1).map((f, i) => ({ t: f.t, dt: f.t - dec[i].t, cap: mad(dec[i].cap, f.cap), face: mad(dec[i].face, f.face), body: mad(dec[i].body, f.body) }));
+  const pops = allPops.filter((p) => p.dt <= LIMITS.captureGapMs);
+  const gapSkipped = allPops.length - pops.length;
   const bright = dec.map((f) => ({ t: f.t, b: f.all.reduce((a, v) => a + v, 0) / f.all.length }));
 
   // --- ko'rinadigan holat vaqt chizig'i: salom ("on") hammasi ustida, aks holda "on" yuz klipi
@@ -183,11 +188,12 @@ try {
     const dips = inWin(bright).map((p) => ((p.b - medBright) / medBright) * 100);
     const dip = dips.length ? Math.min(0, ...dips) : 0;
     const capPeak = inWin(pops).reduce((m, p) => (p.cap > m.cap ? p : m), { cap: -1, t: e.t });
-    (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip, capOff: capPeak.t - e.t });
+    (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip, capOff: capPeak.t - e.t, capDt: capPeak.dt ?? 0 });
   }
   const f1 = (x) => x.toFixed(1);
   const base = { cap: p95("cap"), face: p95("face"), body: p95("body") };
   console.log(`CPU ${THROTTLE}x | kadr yozildi ${shots.length} | oddiy kadrlararo farq p95: furajka/soch ${f1(base.cap)}, yuz ${f1(base.face)}, tana ${f1(base.body)} | yorqinlik mediana ${f1(medBright)}`);
+  console.log(`yozuvda kadr tushgan oraliqlar (> ${LIMITS.captureGapMs} ms) hisobga olinmadi: ${gapSkipped} / ${allPops.length}`);
   console.log(`chegaralar: kechikish ≤ ${LIMITS.latencyMs} ms, qotish ≤ ${LIMITS.stallMs} ms, furajka/soch ≤ oddiy+${LIMITS.capExtra}, tana ≤ oddiy+${LIMITS.bodyExtra}, qorayish ≤ ${LIMITS.dipPct}%`);
   console.log(`loop choki yuz farqi ≤ shu holatdagi oddiy eng katta farq ×1.15: kutish ${f1(steadyFaceMax.idle)}, gapirish ${f1(steadyFaceMax.speaking)}\n`);
   console.log("o'tish                    soni  kechikish  qotish  furajka/soch  yuz   tana  qorayish   natija");
@@ -202,7 +208,7 @@ try {
       (!type.includes("loop") || w("face") <= steadyFaceMax[type.split(" ")[0]] * 1.15 + 0.5);
     if (!ok) bad++;
     // VERBOSE=1: har o'tish alohida (furajka/soch farqi eng katta bo'lgan payt o'tishga nisbatan, ms) — nosozlikni o'tishdan oldin/keyin ajratish uchun
-    if (process.env.VERBOSE) for (const r of arr) console.log(`    · ${type}: furajka/soch ${f1(r.cap)} (${Math.round(r.capOff)} ms), yuz ${f1(r.face)}, tana ${f1(r.body)}`);
+    if (process.env.VERBOSE) for (const r of arr) console.log(`    · ${type}: furajka/soch ${f1(r.cap)} (${Math.round(r.capOff)} ms, yozuv oralig'i ${Math.round(r.capDt)} ms), yuz ${f1(r.face)}, tana ${f1(r.body)}`);
     console.log(`${type.padEnd(25)} ${String(arr.length).padStart(3)}  ${f1(w("latency")).padStart(8)}  ${f1(w("stall")).padStart(6)}  ${f1(w("cap")).padStart(12)}  ${f1(w("face")).padStart(4)}  ${f1(w("body")).padStart(5)}  ${f1(dipW).padStart(7)}%   ${ok ? "O'TDI" : "O'TMADI"}`);
   }
 
