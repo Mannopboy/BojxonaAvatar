@@ -75,6 +75,9 @@ uchun uning xira-o'tishi ham sezilmaydi. Yuz videodan **farq maskasi** bilan oli
 yonoq/jag' chizig'i — faqat video asl rasmdan farq qilgan joyda, sirg'alar — doim asl rasmdan. (Avval asl rasmning mayda tafsiloti
 siljigan qosh ustiga qo'yilardi: «ikki qosh», «ikki sirg'a» — bir video ikkinchisining ustiga tushgandek.) Salomda qo'l maskasi faqat qo'l
 joylashgan hududda (tana, galstuk, yelka — asl rasm; avval tananing mayda siljishi ham maskaga tushib «ikki galstuk» bergan).
+Tushirilgan qo'l o'rni (`ARM_GHOST`, tananing chap tomoni) alohida: u yerda yeng ham, fon ham to'q (farq ≈ 20), umumiy chegarada (24–44)
+yeng salom paytida «arvoh» bo'lib qolgan; shu hududda chegara 8–17, fon belgisi xiralashtirilgan. Salomda yuz maskasi kattaroq
+(`FACE_SCALE`): ko'z/qosh maskaning chetida bo'lsa, bir ko'z asl rasmdan, ikkinchisi videodan olinib «qisib turgan ko'z» chiqardi.
 AI ifodasi ortiqcha (lablar cho'chchayadi, keng tabassum): pastki yuzda ifoda optik oqim bilan 50% ga yumshatilgan (ko'z va qosh tegilmaydi —
 pirpirash saqlanadi), yuz klipi kadrlari vaqt bo'yicha silliqlangan (AI har kadrni qayta chizadi, teri va lab titraydi); kadrlararo o'zgarish ~28% kam.
 AI video bo'lmaganda ham shunday qilish shart: AI har kadrni qayta chizadi — furajkani qiyshaytiradi, kiyim teksturasini "titratadi",

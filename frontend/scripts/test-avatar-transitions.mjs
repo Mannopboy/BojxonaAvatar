@@ -182,7 +182,8 @@ try {
     const mx = (k) => Math.max(0, ...inWin(pops).map((p) => p[k]));
     const dips = inWin(bright).map((p) => ((p.b - medBright) / medBright) * 100);
     const dip = dips.length ? Math.min(0, ...dips) : 0;
-    (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip });
+    const capPeak = inWin(pops).reduce((m, p) => (p.cap > m.cap ? p : m), { cap: -1, t: e.t });
+    (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip, capOff: capPeak.t - e.t });
   }
   const f1 = (x) => x.toFixed(1);
   const base = { cap: p95("cap"), face: p95("face"), body: p95("body") };
@@ -200,6 +201,8 @@ try {
       (isGreet || (w("cap") <= base.cap + LIMITS.capExtra && w("body") <= base.body + LIMITS.bodyExtra)) &&
       (!type.includes("loop") || w("face") <= steadyFaceMax[type.split(" ")[0]] * 1.15 + 0.5);
     if (!ok) bad++;
+    // VERBOSE=1: har o'tish alohida (furajka/soch farqi eng katta bo'lgan payt o'tishga nisbatan, ms) — nosozlikni o'tishdan oldin/keyin ajratish uchun
+    if (process.env.VERBOSE) for (const r of arr) console.log(`    · ${type}: furajka/soch ${f1(r.cap)} (${Math.round(r.capOff)} ms), yuz ${f1(r.face)}, tana ${f1(r.body)}`);
     console.log(`${type.padEnd(25)} ${String(arr.length).padStart(3)}  ${f1(w("latency")).padStart(8)}  ${f1(w("stall")).padStart(6)}  ${f1(w("cap")).padStart(12)}  ${f1(w("face")).padStart(4)}  ${f1(w("body")).padStart(5)}  ${f1(dipW).padStart(7)}%   ${ok ? "O'TDI" : "O'TMADI"}`);
   }
 
