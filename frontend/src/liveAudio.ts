@@ -69,9 +69,18 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
 
   // --- Mikrofon (PCM16, 16kHz ga downsample) ---
   const micCtx = new AudioContext();
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (e) {
+    // Mikrofon yo'q/ruxsat berilmagan: ochilgan audio kontekstlarni yopamiz, aks holda har qayta urinishda
+    // 2 tadan to'planib, brauzer chegarasiga (~6) yetadi va keyin mikrofon ulansa ham ishlamay qoladi
+    void micCtx.close().catch(() => {});
+    void playCtx.close().catch(() => {});
+    throw e;
+  }
   const src = micCtx.createMediaStreamSource(stream);
   const proc = micCtx.createScriptProcessor(4096, 1, 1);
   const mute = micCtx.createGain();

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { AvatarVideo } from "./AvatarVideo";
 import { startLive, type LiveHandle, type LiveState } from "./liveAudio";
+import { micErrorMessage } from "./micError";
 
 export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
@@ -24,8 +25,9 @@ export default function App() {
           setState("error");
         },
       });
-    } catch (e: any) {
-      setError(e?.message || "Mikrofon ochilmadi (ruxsat bering)");
+    } catch (e) {
+      console.error("startLive:", e);
+      setError(micErrorMessage(e));
       setState("error");
     }
   }
