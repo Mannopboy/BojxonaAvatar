@@ -1,7 +1,8 @@
-// Avatar videolari orasidagi HAR BIR o'tishni brauzerda o'lchaydi (soxta Gemini oqimi, haqiqiy Chrome, yig'ilgan `dist`):
-//   salom → kutish, salom → gapirish, kutish → salom, kutish ↔ gapirish, loop chokilari (kutish, gapirish).
+// Avatar qatlamlari orasidagi HAR BIR o'tishni brauzerda o'lchaydi (soxta Gemini oqimi, haqiqiy Chrome, yig'ilgan `dist`):
+//   salom ↔ kutish, salom → gapirish, kutish ↔ gapirish, yuz klipi loop chokilari (kutish, gapirish).
 // Har o'tish uchun: yangi qatlamning birinchi kadri qancha kechikdi, ko'rinib turgan kadrlar orasida eng uzun to'xtash (qotish),
 // ekrandagi sakrash (qo'shni kadrlar farqi: furajka/soch, yuz, tana alohida) va yorqinlik tushishi (qorayish).
+// Qo'shimcha: bosh harakati (tinch holatda jonli, gapirganda kattaroq, salomda qotgan, hamma vaqt silliq).
 //
 //   npm run build && node scripts/test-avatar-transitions.mjs        (THROTTLE=4 — zaif noutbuk, HEADFUL=1 — oyna bilan, TARGET=url — tayyor sayt)
 //
@@ -21,8 +22,13 @@ const CHROME =
   process.env.CHROME_PATH ||
   ["C:/Program Files/Google/Chrome/Application/chrome.exe", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find((p) => fs.existsSync(p));
 const THROTTLE = Number(process.env.THROTTLE || 1);
-// Chegaralar (o'lchangan shovqin ustiga zaxira bilan): kadr oralig'i 41.7 ms
-const LIMITS = { latencyMs: 90, stallMs: 110, bodyPop: 2.5, capPop: 2.5, dipPct: 6 };
+// Chegaralar (o'lchangan shovqin ustiga zaxira bilan): kadr oralig'i 41.7 ms.
+// capPop/bodyPop — o'tish paytidagi eng katta kadrlararo farq, oddiy (o'tishsiz) p95 ustiga qo'shimcha: bosh doim qimirlaydi,
+// shuning uchun absolyut emas, nisbiy.
+const LIMITS = { latencyMs: 90, stallMs: 110, capExtra: 1.5, bodyExtra: 1.5, dipPct: 6 };
+
+// Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
+const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
 
 const server = process.env.TARGET ? null : await preview({ root: FRONT, logLevel: "error", preview: { port: 4177, strictPort: true, host: "127.0.0.1" } });
 const URL0 = process.env.TARGET || "http://127.0.0.1:4177/";
@@ -63,17 +69,30 @@ try {
     };
   });
   await page.goto(URL0, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => document.querySelectorAll(".avatar-layer").length === 3 && Array.from(document.querySelectorAll(".avatar-layer")).every((v) => v.readyState >= 3), { timeout: 60000 });
+  await page.waitForFunction(
+    () => document.querySelectorAll(".rig-face").length === 2 && !!document.querySelector(".rig-greeting") &&
+      [...document.querySelectorAll(".rig-face, .rig-greeting")].every((v) => v.readyState >= 3) &&
+      [...document.querySelectorAll(".avatar-rig img")].every((i) => i.complete && i.naturalWidth > 0),
+    { timeout: 60000 });
   await page.evaluate(() => {
-    const names = ["idle", "speaking", "greeting"];
-    window.__t = { frames: { idle: [], speaking: [], greeting: [] }, cls: [] };
-    Array.from(document.querySelectorAll(".avatar-layer")).forEach((v, i) => {
-      const n = names[i];
+    const els = { idle: document.querySelectorAll(".rig-face")[0], speaking: document.querySelectorAll(".rig-face")[1], greeting: document.querySelector(".rig-greeting") };
+    window.__t = { frames: { idle: [], speaking: [], greeting: [] }, cls: [], pose: [] };
+    for (const [n, v] of Object.entries(els)) {
       const cb = (now, meta) => { window.__t.frames[n].push([performance.timeOrigin + now, meta.mediaTime]); v.requestVideoFrameCallback(cb); };
       v.requestVideoFrameCallback(cb);
       new MutationObserver(() => window.__t.cls.push([performance.timeOrigin + performance.now(), n, v.className])).observe(v, { attributes: true, attributeFilter: ["class"] });
-    });
+    }
+    // boshning haqiqiy transformi (JS qo'ygan) har animatsiya kadrida
+    const head = document.querySelector(".rig-head");
+    const sample = () => {
+      const m = /translate\(([-\d.]+)px, ([-\d.]+)px\) rotate\(([-\d.]+)deg\)/.exec(head.style.transform || "");
+      if (m) window.__t.pose.push([performance.timeOrigin + performance.now(), +m[1], +m[2], +m[3]]);
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
   });
+  const rig = await page.evaluate(() => { const r = document.querySelector(".avatar-rig").getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+  const sc = rig.w / 1080;
 
   const shots = [];
   cdp.on("Page.screencastFrame", async (f) => { shots.push({ t: f.metadata.timestamp * 1000, data: f.data }); await cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {}); });
@@ -87,36 +106,42 @@ try {
   // 2-suhbat: uzun nutq → salom → GAPIRISH, so'ng pauzalar bilan kutish ↔ gapirish, oxirida uzoq kutish (loop choki)
   await page.click(".talk"); await wait(1.2);
   await page.evaluate(() => window.__speak([[10.5, 1.0], [3, 0.9], [4, 1.5], [2.5, 0.8], [3, 0.7], [2, 0]])); await wait(31);
-  await wait(6); // uzoq kutish: kutish klipi 4 s da loop qiladi
+  await wait(6); // uzoq kutish: kutish klipi ~4.6 s da loop qiladi
   await page.click(".talk"); await wait(1);
   await cdp.send("Page.stopScreencast");
   const T = await page.evaluate(() => window.__t);
 
-  // --- kadrlar: figura (x 440..840, y 80..660) uch hududda: furajka/soch (tepa), yuz, tana
-  const W = 400;
-  const REG = { cap: [0, 58], face: [58, 118], body: [124, 580] };
+  // --- kadrlar: har hudud alohida qirqib olinadi (kulrang)
+  const rect = ([x0, y0, x1, y1]) => ({ left: Math.round(rig.x + x0 * sc), top: Math.round(rig.y + y0 * sc), width: Math.max(2, Math.round((x1 - x0) * sc)), height: Math.max(2, Math.round((y1 - y0) * sc)) });
   const dec = [];
-  // yozib olishning birinchi ~1 s kadrlari beqaror (masshtab o'zgaradi) — hisobga olinmaydi
+  // yozib olishning birinchi ~1 s kadrlari beqaror — hisobga olinmaydi
   const warm = shots.length ? shots[0].t + 1000 : 0;
   for (const s of shots.filter((x) => x.t >= warm)) {
-    const raw = await sharp(Buffer.from(s.data, "base64")).extract({ left: 440, top: 80, width: W, height: 580 }).grayscale().raw().toBuffer();
-    dec.push({ t: s.t, raw });
+    const buf = Buffer.from(s.data, "base64");
+    const f = { t: s.t };
+    for (const [k, r] of Object.entries(REGIONS)) f[k] = await sharp(buf).extract(rect(r)).grayscale().raw().toBuffer();
+    dec.push(f);
   }
-  const diff = (a, b, [r0, r1]) => { let s = 0; for (let i = r0 * W; i < r1 * W; i++) s += Math.abs(a[i] - b[i]); return s / ((r1 - r0) * W); };
-  const pops = dec.slice(1).map((f, i) => ({ t: f.t, cap: diff(dec[i].raw, f.raw, REG.cap), face: diff(dec[i].raw, f.raw, REG.face), body: diff(dec[i].raw, f.raw, REG.body) }));
-  const bright = dec.map((f) => ({ t: f.t, b: f.raw.reduce((a, v) => a + v, 0) / f.raw.length }));
+  const mad = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s / a.length; };
+  const pops = dec.slice(1).map((f, i) => ({ t: f.t, cap: mad(dec[i].cap, f.cap), face: mad(dec[i].face, f.face), body: mad(dec[i].body, f.body) }));
+  const bright = dec.map((f) => ({ t: f.t, b: f.all.reduce((a, v) => a + v, 0) / f.all.length }));
 
-  // --- o'tishlar: qaysi qatlam "on" bo'ldi (oldingi "on" → yangi "on")
+  // --- ko'rinadigan holat vaqt chizig'i: salom ("on") hammasi ustida, aks holda "on" yuz klipi
+  const cur = { idle: "", speaking: "", greeting: "" };
   const trans = [];
-  let cur = "idle";
+  let state = "idle";
+  const stateOf = () => (/\bon\b/.test(cur.greeting) ? "greeting" : /\bon\b/.test(cur.speaking) ? "speaking" : "idle");
+  const timeline = []; // [t, {idle:cls, speaking:cls, greeting:cls}]
   for (const [t, n, c] of T.cls) {
-    if (/\bon\b/.test(c) && n !== cur) { trans.push({ t, from: cur, to: n, type: `${cur} → ${n}` }); cur = n; }
+    cur[n] = c;
+    timeline.push([t, { ...cur }]);
+    const s = stateOf();
+    if (s !== state) { trans.push({ t, from: state, to: s, type: `${state} → ${s}` }); state = s; }
   }
-  // --- loop choki: ko'rinib turgan qatlamda mediaTime kamaygan paytlar
-  const visible = (n, t) => { let on = false; for (const [tt, nn, c] of T.cls) { if (nn === n && tt <= t + 50) on = /\bon\b|\bprev\b/.test(c); } return on; };
-  // hozir EKRANDAGI (on) qatlam: o'tishlar ro'yxatidan
-  const onLayer = (t) => { let cur = "idle"; for (const x of trans) { if (x.t <= t) cur = x.to; else break; } return cur; };
-  // loop choki — faqat ekrandagi (on) klip boshiga qaytganda; boshqa qatlamni boshiga qaytarish (to'xtatish) ekranda ko'rinmaydi
+  const classesAt = (t) => { let c = { idle: "", speaking: "", greeting: "" }; for (const [tt, cc] of timeline) { if (tt <= t + 50) c = cc; else break; } return c; };
+  const visible = (n, t) => { const c = classesAt(t)[n]; return n === "greeting" ? /\bon\b/.test(c) || false : true; /* yuz klipi ichida doim ko'rinadi (on/prev yoki 1% tagida) */ };
+  const onLayer = (t) => { let s = "idle"; for (const x of trans) { if (x.t <= t) s = x.to; else break; } return s; };
+  // loop choki — faqat ekrandagi yuz klipi boshiga qaytganda (salom ustida bo'lsa ko'rinmaydi)
   const wraps = [];
   for (const n of ["idle", "speaking"]) {
     const fs_ = T.frames[n];
@@ -130,20 +155,24 @@ try {
       fs.writeFileSync(path.join(process.env.DUMP_DIR, `${String(k).padStart(2, "0")}_${e.type.replace(/\W+/g, "_")}_${String(j).padStart(2, "0")}_${Math.round(s.t - e.t)}ms.jpg`), Buffer.from(s.data, "base64"))));
   }
   const near = (t, lo = -700, hi = 900) => allEvents.some((e) => t - e.t >= lo && t - e.t <= hi);
-  const steady = (k) => pops.filter((p) => !near(p.t)).map((p) => p[k]).sort((a, b) => a - b);
+  // salom ustida (qo'l, tana harakatlanadi) oddiy farq o'lchanmaydi
+  const inGreeting = (t) => classesAt(t).greeting.includes("on");
+  const steady = (k) => pops.filter((p) => !near(p.t) && !inGreeting(p.t)).map((p) => p[k]).sort((a, b) => a - b);
   const p95 = (k) => { const s = steady(k); return s[Math.floor(s.length * 0.95)] ?? 0; };
+  // loop choki yuzda oddiy (o'tishsiz) harakatdan keskinroq bo'lmasligi kerak: shu holatdagi eng katta kadrlararo yuz farqi bilan solishtiriladi
+  const steadyFaceMax = {};
+  for (const s of ["idle", "speaking"]) steadyFaceMax[s] = Math.max(0, ...pops.filter((p) => !near(p.t) && !inGreeting(p.t) && onLayer(p.t) === s).map((p) => p.face));
   const medB = bright.filter((b) => !near(b.t)).map((b) => b.b).sort((a, b) => a - b);
   const medBright = medB[Math.floor(medB.length / 2)];
 
-  // ko'rinib turgan kadrlar (ikkala qatlam, on/prev): ketma-ket eng uzun oraliq
+  // ko'rinib turgan kadrlar: ekrandagi yuz klipi + (bo'lsa) salom — ketma-ket eng uzun oraliq
   const visFrames = [];
-  for (const n of Object.keys(T.frames)) for (const f of T.frames[n]) if (visible(n, f[0])) visFrames.push(f[0]);
+  for (const n of Object.keys(T.frames)) for (const f of T.frames[n]) if (n === "greeting" ? classesAt(f[0]).greeting.includes("on") : true) visFrames.push(f[0]);
   visFrames.sort((a, b) => a - b);
 
   const rows = {};
   for (const e of allEvents) {
-    const win = (lo, hi) => [e.t + lo, e.t + hi];
-    const [a, b] = win(-120, 450);
+    const [a, b] = [e.t - 120, e.t + 450];
     const g = []; for (let i = 1; i < visFrames.length; i++) if (visFrames[i] >= a && visFrames[i] <= b) g.push(visFrames[i] - visFrames[i - 1]);
     const stall = g.length ? Math.max(...g) : 0;
     const first = e.to && T.frames[e.to]?.find((f) => f[0] >= e.t);
@@ -155,18 +184,45 @@ try {
     (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip });
   }
   const f1 = (x) => x.toFixed(1);
-  console.log(`CPU ${THROTTLE}x | kadr yozildi ${shots.length} | oddiy kadrlararo farq p95: furajka/soch ${f1(p95("cap"))}, yuz ${f1(p95("face"))}, tana ${f1(p95("body"))} | yorqinlik mediana ${f1(medBright)}`);
-  console.log(`chegaralar: kechikish ≤ ${LIMITS.latencyMs} ms, qotish ≤ ${LIMITS.stallMs} ms, furajka/soch va tana sakrashi ≤ ${LIMITS.capPop}, qorayish ≤ ${LIMITS.dipPct}%\n`);
+  const base = { cap: p95("cap"), face: p95("face"), body: p95("body") };
+  console.log(`CPU ${THROTTLE}x | kadr yozildi ${shots.length} | oddiy kadrlararo farq p95: furajka/soch ${f1(base.cap)}, yuz ${f1(base.face)}, tana ${f1(base.body)} | yorqinlik mediana ${f1(medBright)}`);
+  console.log(`chegaralar: kechikish ≤ ${LIMITS.latencyMs} ms, qotish ≤ ${LIMITS.stallMs} ms, furajka/soch ≤ oddiy+${LIMITS.capExtra}, tana ≤ oddiy+${LIMITS.bodyExtra}, qorayish ≤ ${LIMITS.dipPct}%`);
+  console.log(`loop choki yuz farqi ≤ shu holatdagi oddiy eng katta farq ×1.15: kutish ${f1(steadyFaceMax.idle)}, gapirish ${f1(steadyFaceMax.speaking)}\n`);
   console.log("o'tish                    soni  kechikish  qotish  furajka/soch  yuz   tana  qorayish   natija");
   let bad = 0;
   for (const [type, arr] of Object.entries(rows)) {
     const w = (k) => Math.max(...arr.map((r) => r[k]));
     const dipW = Math.min(...arr.map((r) => r.dip));
-    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && w("cap") <= LIMITS.capPop && w("body") <= LIMITS.bodyPop && -dipW <= LIMITS.dipPct;
+    const isGreet = type.includes("greeting");
+    // salom o'tishlarida tananing o'zi harakatlanadi (qo'l ko'tariladi): u yerda tana/furajka farqi faqat kuzatiladi
+    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= LIMITS.dipPct &&
+      (isGreet || (w("cap") <= base.cap + LIMITS.capExtra && w("body") <= base.body + LIMITS.bodyExtra)) &&
+      (!type.includes("loop") || w("face") <= steadyFaceMax[type.split(" ")[0]] * 1.15 + 0.5);
     if (!ok) bad++;
     console.log(`${type.padEnd(25)} ${String(arr.length).padStart(3)}  ${f1(w("latency")).padStart(8)}  ${f1(w("stall")).padStart(6)}  ${f1(w("cap")).padStart(12)}  ${f1(w("face")).padStart(4)}  ${f1(w("body")).padStart(5)}  ${f1(dipW).padStart(7)}%   ${ok ? "O'TDI" : "O'TMADI"}`);
   }
-  console.log(`\nJAMI: ${Object.keys(rows).length} tur, ${allEvents.length} o'tish, o'tmagan tur: ${bad}`);
+
+  // --- bosh harakati: tinch holatda jonli, gapirganda kattaroq, salomda qotgan, doim silliq
+  const P = T.pose.filter((p) => p[0] >= warm);
+  const rangeOf = (arr) => (arr.length ? Math.max(...arr.map((p) => Math.abs(p[3]))) : 0);
+  const stateAt = (t) => (inGreeting(t) ? "greeting" : onLayer(t));
+  const during = (s, margin = 600) => P.filter((p) => stateAt(p[0]) === s && stateAt(p[0] - margin) === s);
+  const poseRows = [
+    ["tinch (kutish)", rangeOf(during("idle")), (v) => v > 0.08 && v < 0.6, "0.08–0.6°"],
+    ["gapirish", rangeOf(during("speaking")), (v) => v > 0.35 && v < 2.0, "0.35–2.0°"],
+    ["salom (qotgan)", rangeOf(during("greeting", 700)), (v) => v < 0.02, "< 0.02°"],
+  ];
+  let jump = 0;
+  for (let i = 1; i < P.length; i++) { const dt = Math.max(1, P[i][0] - P[i - 1][0]); jump = Math.max(jump, (Math.abs(P[i][3] - P[i - 1][3]) / dt) * 16.7); }
+  poseRows.push(["silliqlik (eng katta sakrash/kadr)", jump, (v) => v < 0.2, "< 0.2°/kadr"]);
+  console.log("\nbosh harakati                              o'lchandi   chegara      natija");
+  for (const [name, v, test, lim] of poseRows) {
+    const ok = test(v);
+    if (!ok) bad++;
+    console.log(`${name.padEnd(42)} ${v.toFixed(2).padStart(7)}°   ${lim.padEnd(11)}  ${ok ? "O'TDI" : "O'TMADI"}`);
+  }
+
+  console.log(`\nJAMI: ${Object.keys(rows).length} tur, ${allEvents.length} o'tish, o'tmagan tur/tekshiruv: ${bad}`);
   process.exitCode = bad ? 1 : 0;
 } finally {
   await browser.close();

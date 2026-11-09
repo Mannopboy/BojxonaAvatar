@@ -58,18 +58,31 @@ body {
 
 /* Scene — avatar video. Video foni sayt foniga (#05070d) tushirilgan (scripts/process-avatar-clips.mjs), shunda video chetlari sezilmaydi. */
 .scene { position: relative; min-height: 0; background: var(--bg); }
-/* Birinchi kadr yuklanguncha ko'rinadigan rasm — <video poster> EMAS: poster video boshiga qaytganda (loop, seek) har safar
-   bir kadr ko'rinib, rangi va tafsiloti videodan farq qilgani uchun miltillash bergan (kutish klipida har 4 soniyada). */
-.avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg) url("/avatar/idle-poster.jpg") center / contain no-repeat; isolation: isolate; }
-.avatar-layer {
-  position: absolute; inset: 0; width: 100%; height: 100%;
+/* Avatar qatlamlari (AvatarVideo.tsx): tana rasmi + bosh qatlami (yuz videolari ichida) + salom videosi. Rasmlar darhol ko'rinadi
+   (video yuklanishini kutmaydi). O'lcham JS da o'rnatiladi (sahnaga sig'adi, 9:16). */
+.avatar-video { position: absolute; inset: 0; overflow: hidden; background: var(--bg); isolation: isolate; }
+.avatar-rig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.avatar-rig img, .avatar-rig video { display: block; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+.rig-base { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rig-head { position: absolute; will-change: transform; } /* transform har kadrda JS da (bosh harakati) */
+.rig-head-img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rig-face {
+  position: absolute; z-index: 0; pointer-events: none; will-change: opacity;
   /* Yashirin qatlam opacity: 0 emas, 0.01: aks holda brauzer uni chizmay qo'yadi va ko'rinishi bilan bir kadr qora chiqishi mumkin.
      Ustida har doim to'liq noshaffof .on qatlami turadi, shuning uchun 1% sezilmaydi. */
-  object-fit: contain; opacity: 0.01; z-index: 0; pointer-events: none; will-change: opacity;
+  opacity: 0.01;
+  /* Qirqim chetlari yumshoq so'nadi: chetida video bosh qatlamiga teng, kodek shovqini chiziq bo'lib ko'rinmasin */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent), linear-gradient(to bottom, transparent, #000 10%, #000 93%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 9%, #000 91%, transparent), linear-gradient(to bottom, transparent, #000 10%, #000 93%, transparent);
+  mask-composite: intersect;
 }
 /* Eski qatlam to'liq ko'rinib turadi, yangisi uning ustida xira-o'tish bilan paydo bo'ladi (o'rtada qorayish bo'lmasin) */
-.avatar-layer.prev { opacity: 1; z-index: 1; }
-.avatar-layer.on { opacity: 1; z-index: 2; transition: opacity 120ms linear; } /* AvatarVideo.tsx dagi FADE_MS */
+.rig-face.prev { opacity: 1; z-index: 1; }
+.rig-face.on { opacity: 1; z-index: 2; transition: opacity 120ms linear; } /* AvatarVideo.tsx dagi FADE_MS */
+/* Salom: to'liq kadr, hammasi ustida; boshi va oxiri qatlamlarga piksel-piksel teng, shuning uchun xira-o'tish sezilmaydi */
+.rig-greeting { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; opacity: 0.01; pointer-events: none; will-change: opacity; transition: opacity 120ms linear; }
+.rig-greeting.on { opacity: 1; }
 .status {
   z-index: 5;
   position: absolute; top: 16px; left: 16px; /* avatar tik va sahnaning o'rtasida turadi — chap burchakda boshiga tegmaydi */
