@@ -15,7 +15,10 @@ from .config import get_settings
 settings = get_settings()
 router = APIRouter()
 
-LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-09-2025"
+LIVE_MODEL = settings.gemini_live_model
+# gemini-2.5-* modellarda avtomatik VAD ishonchsiz — foydalanuvchi gapirish boshi/oxirini frontend aniqlaydi (activity_start/end).
+# gemini-3.x modellar qo'lda activity ni QABUL QILMAYDI (1007 "Precondition check failed", o'lchangan) — ular avtomatik VAD bilan ishlaydi.
+MANUAL_ACTIVITY = LIVE_MODEL.startswith("gemini-2.5")
 
 SYSTEM_INSTRUCTION = (
     "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan. "
@@ -45,7 +48,7 @@ SYSTEM_INSTRUCTION = (
 def _config() -> types.LiveConnectConfig:
     # ⚠️ Native audio model tool (google_search/function) bilan audio o'rniga TEXT qaytaradi —
     # shuning uchun tabiiy ovoz uchun tool ishlatilmaydi; aniqlik system prompt fakt­lariga tayanadi.
-    return types.LiveConnectConfig(
+    kwargs: dict = dict(
         response_modalities=["AUDIO"],
         system_instruction=SYSTEM_INSTRUCTION,
         output_audio_transcription=types.AudioTranscriptionConfig(),
@@ -54,12 +57,16 @@ def _config() -> types.LiveConnectConfig:
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice)
             )
         ),
+    )
+    if "extended" in LIVE_MODEL:  # bu model fikrlash darajasini talab qiladi ("Thinking level must be specified")
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=settings.gemini_live_thinking)
+    if MANUAL_ACTIVITY:
         # ⚠️ Native audio + greeting bilan avtomatik VAD ishonchsiz (greeting'dan keyin javob bermaydi).
         # Shuning uchun QO'LDA activity: frontend gapirish boshi/oxirini aniqlab activity_start/end yuboradi.
-        realtime_input_config=types.RealtimeInputConfig(
+        kwargs["realtime_input_config"] = types.RealtimeInputConfig(
             automatic_activity_detection=types.AutomaticActivityDetection(disabled=True)
-        ),
-    )
+        )
+    return types.LiveConnectConfig(**kwargs)
 
 
 @router.websocket("/ws/live")
@@ -100,9 +107,11 @@ async def ws_live(ws: WebSocket):
 
             # Boshlanishda avatar o'zi salomlashadi (frontend shu paytda 'Salute' o'ynaydi)
             if settings.live_greeting:
-                await session.send_realtime_input(activity_start=types.ActivityStart())
+                if MANUAL_ACTIVITY:
+                    await session.send_realtime_input(activity_start=types.ActivityStart())
                 await session.send_realtime_input(text="Suhbat boshlandi. Yo'lovchini salomlashib kutib ol.")
-                await session.send_realtime_input(activity_end=types.ActivityEnd())
+                if MANUAL_ACTIVITY:
+                    await session.send_realtime_input(activity_end=types.ActivityEnd())
                 await forward_response()
 
             # Suhbat sikli — half-duplex. Frontend avatar gapirganda mikrofonni yubormaydi (gate).
@@ -122,9 +131,15 @@ async def ws_live(ws: WebSocket):
                 ctl = json.loads(text)
                 ctype = ctl.get("type")
                 if ctype == "activity_start":  # foydalanuvchi gapira boshladi
-                    await session.send_realtime_input(activity_start=types.ActivityStart())
+                    if MANUAL_ACTIVITY:
+                        await session.send_realtime_input(activity_start=types.ActivityStart())
+                    # avtomatik VAD: server ovozni o'zi aniqlaydi, mikrofon audiosi yuboriladi (pastda)
                 elif ctype == "activity_end":  # gapirib bo'ldi → javobni o'qiymiz
-                    await session.send_realtime_input(activity_end=types.ActivityEnd())
+                    if MANUAL_ACTIVITY:
+                        await session.send_realtime_input(activity_end=types.ActivityEnd())
+                    else:
+                        # mikrofon to'xtadi (half-duplex gate): keshdagi audio tugatiladi va server nutq oxirini aniqlaydi
+                        await session.send_realtime_input(audio_stream_end=True)
                     await forward_response()
                 elif ctype == "text":  # test/fallback
                     await session.send_client_content(

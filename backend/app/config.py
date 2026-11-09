@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     gemini_text_model: str = "gemini-2.5-flash"
     # Gemini Live ovozi (erkak: Orus/Fenrir/Puck; ayol: Kore/Aoede/Leda). Avatar — ayol xodim, shuning uchun ayol ovozi.
     gemini_voice: str = "Kore"
+    # Gemini Live modeli. gemini-3.8-live-extended-thinking: o'zbekchada aksentsiz (foydalanuvchi 4 modeldan tanladi, 2026-11-09).
+    # gemini-2.5-* modellar ham ishlaydi (qo'lda activity bilan) — kerak bo'lsa .env da GEMINI_LIVE_MODEL bilan qaytarish mumkin.
+    gemini_live_model: str = "gemini-3.8-live-extended-thinking"
+    gemini_live_thinking: str = "LOW"  # extended-thinking modeli uchun majburiy: MINIMAL | LOW | MEDIUM | HIGH (LOW — tez javob)
     live_greeting: bool = True  # ulanishda avatar o'zi salomlashadi
 
     grounding_enabled: bool = True
