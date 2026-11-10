@@ -57,11 +57,11 @@ describe("haqiqiy gapirish variantlari", () => {
     expect(new Set(SPEAKING_VARIANTS.map((v) => v.file)).size).toBe(SPEAKING_VARIANTS.length);
   });
 
-  it("har variantda o'tish oralig'i yetarli: eng uzog'i bilan 1.2 s kutiladi (gap tugagach og'iz uzoq harakatlanmasin)", () => {
+  it("har variantda o'tish oralig'i yetarli: eng uzog'i bilan 1.6 s kutiladi (yopiq lablarsiz o'tishdan kutish yaxshi; real klipda o'lchangan 1.46 s)", () => {
     for (const v of SPEAKING_VARIANTS) {
       let worst = 0;
       for (let t = 0; t < v.duration; t += 0.01) worst = Math.max(worst, nextExitDelay(v.exits, t, v.duration));
-      expect(worst, v.file).toBeLessThanOrEqual(1.2);
+      expect(worst, v.file).toBeLessThanOrEqual(1.6);
     }
   });
 

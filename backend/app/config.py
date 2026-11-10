@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     gemini_live_thinking: str = "LOW"  # extended-thinking modeli uchun majburiy: MINIMAL | LOW | MEDIUM | HIGH (LOW — tez javob)
     live_greeting: bool = True  # ulanishda avatar o'zi salomlashadi
 
+    # Ovoz zanjiri: "tts" — Gemini matn modeli (ovozli savolni tushunadi) + Gemini TTS (gemini-3.8-flash-tts) ovozlaydi;
+    # "live" — Gemini Live (yuqoridagi model). Foydalanuvchi 2026-11-10 da TTS ovozini tanladi (Live ovozida talaffuz xatolari bor edi).
+    voice_engine: str = "tts"
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    gemini_chat_model: str = ""  # bo'sh bo'lsa gemini_text_model ishlatiladi
+    greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman. Sizga qanday yordam bera olaman?"
+
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005
     allowed_sources: str = "customs.uz,lex.uz,gov.uz,my.gov.uz"

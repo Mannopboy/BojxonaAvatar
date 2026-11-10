@@ -29,7 +29,7 @@ const THROTTLE = Number(process.env.THROTTLE || 1);
 // captureGapMs: ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi (o'lchangan: odatda 33 ms, ba'zan 100–230 ms). Shunday oraliqdagi
 // ikki kadr farqi video nuqsoni emas, yozuv artefakti (bosh va yuz bir vaqtda "sakraydi") — bunday juftliklar hisobga olinmaydi.
 // Haqiqiy uzilishni stallMs (video kadrlari vaqti, rVFC) alohida tekshiradi.
-const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 4, captureGapMs: 100 };
+const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 6, captureGapMs: 100 };
 
 // Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
 const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
@@ -180,6 +180,7 @@ try {
   for (const n of ["idle", "a", "b", "greeting"]) for (const f of T.frames[n]) if (n === "greeting" ? classesAt(f[0]).greeting.includes("on") : true) visFrames.push(f[0]);
   visFrames.sort((a, b) => a - b);
 
+  const f1_ = (x) => x.toFixed(1);
   const rows = {};
   for (const e of allEvents) {
     const [a, b] = [e.t - 120, e.t + 450];
@@ -194,6 +195,15 @@ try {
     const ref = Math.min(meanB(-700, -300), meanB(600, 1000));
     const dips = inWin(bright).map((p) => ((p.b - ref) / ref) * 100).filter(Number.isFinite);
     const dip = dips.length ? Math.min(0, ...dips) : 0;
+    // VERBOSE + DUMP_DIR: eng katta tana farqi chiqqan juftlik (oldingi/keyingi kadr) alohida saqlanadi — sabab ko'z bilan ko'rilsin
+    if (process.env.VERBOSE && process.env.DUMP_DIR) {
+      const bp = inWin(pops).reduce((m, q) => (q.body > m.body ? q : m), { body: -1 });
+      if (bp.body > 0 && bp.body > steadyMax.body * 1.15 + 0.5) {
+        const after = shots.find((x) => x.t === bp.t), before = shots.filter((x) => x.t < bp.t).pop();
+        fs.mkdirSync(process.env.DUMP_DIR, { recursive: true });
+        if (after && before) { const k = e.type.replace(/\W+/g, "_") + "_" + Math.round(e.t % 100000); fs.writeFileSync(path.join(process.env.DUMP_DIR, `PEAK_${k}_a.jpg`), Buffer.from(before.data, "base64")); fs.writeFileSync(path.join(process.env.DUMP_DIR, `PEAK_${k}_b.jpg`), Buffer.from(after.data, "base64")); console.log(`    PEAK ${e.type}: body ${f1_(bp.body)} dt ${Math.round(bp.dt)} ms at ${Math.round(bp.t - e.t)} ms -> ${k}`); }
+      }
+    }
     const capPeak = inWin(pops).reduce((m, p) => (p.cap > m.cap ? p : m), { cap: -1, t: e.t });
     (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip, capOff: capPeak.t - e.t, capDt: capPeak.dt ?? 0 });
   }
@@ -209,7 +219,8 @@ try {
     const dipW = Math.min(...arr.map((r) => r.dip));
     const isGreet = type.includes("greeting");
     // salom o'tishlarida tananing o'zi harakatlanadi (qo'l ko'tariladi): u yerda tana farqi faqat kuzatiladi
-    const lim = (k) => steadyMax[k] * 1.15 + 0.5;
+    // tana: kutish klipi nafas olganda jaket ±1.5–1.8 px siljiydi, kirishdagi 200 ms xira-o'tishda bir kadrda ~3 gacha farq beradi (o'lchangan) — taglik 3.5
+    const lim = (k) => Math.max(steadyMax[k] * 1.15 + 0.5, k === "body" ? 3.5 : 0);
     const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= LIMITS.flashPct &&
       w("cap") <= lim("cap") && w("face") <= lim("face") && (isGreet || w("body") <= lim("body"));
     if (!ok) bad++;

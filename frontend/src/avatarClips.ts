@@ -7,7 +7,7 @@ import clips from "./avatarClips.json";
  * Avatar fayllari manzili. nginx /avatar/ ni keshlaydi: fayl nomi o'zgarmay mazmuni o'zgarsa, kesh eski faylni yangi kod bilan
  * aralashtirib yuborardi. Avatar fayllari qayta tayyorlanganda ASSET_V ni oshiring.
  */
-export const ASSET_V = "7";
+export const ASSET_V = "13";
 export const assetUrl = (file: string) => `/avatar/${file}?v=${ASSET_V}`;
 
 /** Video kadri (xom klip o'lchami 720x1280, 9:16). */
@@ -56,3 +56,6 @@ export function nextExitDelay(exits: readonly Interval[], t: number, duration: n
   }
   return best;
 }
+
+/** Klip `t` soniyada o'tish oralig'ida turibdimi (og'iz yopiq va bosh kutish o'rnida)? */
+export const isExitTime = (exits: readonly Interval[], t: number, duration: number): boolean => nextExitDelay(exits, t, duration) === 0;

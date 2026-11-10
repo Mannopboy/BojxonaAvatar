@@ -77,6 +77,25 @@ async def ws_live(ws: WebSocket):
         await ws.close()
         return
 
+    if settings.voice_engine == "tts":  # Gemini matn modeli + Gemini TTS (gemini-3.8-flash-tts) — tts_voice.py
+        from .tts_voice import handle
+
+        try:
+            await handle(ws)
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:  # noqa: BLE001
+            try:
+                await ws.send_text(json.dumps({"type": "error", "msg": str(e)[:200]}))
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            try:
+                await ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return
+
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:

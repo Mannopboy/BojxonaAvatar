@@ -47,58 +47,60 @@ npm run dev            # http://localhost:5173  (/api → backend proxy)
 
 ## Avatar (video)
 
-Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga yozma rozilik saqlansin), u **3 ta AI video**dan iborat
-(`frontend/public/avatar/`, jami ~3 MB; 720×1280 tik, to'liq bo'y, old tomondan). Videolarga **hech qanday ishlov berilmagan**: faqat qirqilgan
-va orqa foni qora (quyida). Bosh/tana uchun qo'shimcha harakat, qatlam, yuz ifodasini yumshatish **yo'q** (avval bor edi — foydalanuvchi «ortiqcha,
-sun'iy» deb topdi, olib tashlandi). Ovoz — ayol (`GEMINI_VOICE=Kore`), model `gemini-3.8-live-extended-thinking` (`GEMINI_LIVE_MODEL`, `GEMINI_LIVE_THINKING`; `backend/app/config.py`). ⚠️ gemini-3.x modellar qo'lda activity (`activity_start/end`) ni qabul qilmaydi — backend avtomatik VAD ishlatadi va foydalanuvchi gapirib bo'lgach `audio_stream_end` yuboradi; gemini-2.5-* ga qaytilsa qo'lda activity avtomatik yoqiladi.
+Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga yozma rozilik saqlansin), u **xom AI videolar**dan iborat
+(`frontend/public/avatar/`, jami ~6 MB; 720×1280 tik, to'liq bo'y, old tomondan). Videolar Higgsfield (Seedance 2.0) da **qora fonli uy kadridan** yaratilgan
+(`start_image = end_image`: har klip aynan shu pozada boshlanadi va tugaydi). Bosh/tana uchun qo'shimcha harakat, qatlam, yuz ifodasini yumshatish **yo'q**
+(foydalanuvchi «ortiqcha, sun'iy» deb topgan edi) — faqat joylashuv, yorqinlik/tiniqlik tenglash va uzun jim oraliqlarni qisqartirish (quyida).
 
 | Video | Nima | Qachon |
 |-------|------|--------|
-| `idle.mp4` (4.7 s) | tinglayotgan avatar, og'iz yopiq, har ~4.7 s da bitta pirpirash; kadrlar oldinga-orqaga (takrorlanish choki yo'q) | ovoz yo'q: tinglayotganda, javob tugagach |
-| `speaking.mp4` (6.7 s) | gapirish, takrorlanadi | **ovoz eshitilayotganda** |
-| `greeting.mp4` (4.6 s) | qo'li bilan salom, bir marta | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) |
+| `idle.mp4` (~5 s) | tinglayotgan avatar, og'iz yopiq, bitta pirpirash; takrorlanadi | ovoz yo'q: tinglayotganda, javob tugagach |
+| `speaking-01..NN.mp4` (6–8 s) | gapirish **variantlari** (turli lab harakati); har klip uy pozasida boshlanib tugaydi | **ovoz eshitilayotganda**: tasodifiy variant, tugayotganda keyingisi (oldingisidan boshqa) ulanadi |
+| `greeting.mp4` (~6.5 s) | qo'li bilan salom, bir marta; og'iz salom bilan birga boshlanadi | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) |
 
-**Og'iz faqat ovoz bor paytda qimirlaydi.** Brauzer pleyerning haqiqiy ovoz balandligini o'lchaydi (`liveAudio` level, `src/AvatarVideo.tsx`):
-ovoz bor → `speaking`, 0.25 s dan ko'p jim → `idle`. `speaking` videosidagi lab harakati jonli so'zlarga hece-hece sinxron **emas**.
+### Ovoz (backend)
+Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
+- **`tts`** (standart): mikrofon → **Gemini matn modeli** (`GEMINI_CHAT_MODEL`, bo'sh bo'lsa `GEMINI_TEXT_MODEL`=`gemini-2.5-flash`; ovozli savolni to'g'ridan-to'g'ri
+  tushunadi, matn javob beradi, oxirgi 4 savol-javob eslab qolinadi) → **Gemini TTS `gemini-3.8-flash-tts`** (oqimli) → brauzer. Kod: `backend/app/tts_voice.py`.
+  Foydalanuvchi Live va TTS namunalarini eshitib TTS ni tanladi: Live modelida o'zbekcha so'zlar noto'g'ri talaffuz qilinardi.
+  Protokol `/ws/live` bilan bir xil (`ready`, PCM16 24 kHz binar audio, `transcript`, `turn_complete`) — frontend o'zgarmaydi.
+  ⚠️ TTS ga «… o'qi: matn» kabi ko'rsatma **qo'shilmaydi**: model uni ovoz chiqarib o'qiydi (o'lchangan: 6.6 s o'rniga 15 s). Javob matni sonlarni so'z bilan
+  yozadi (tizim ko'rsatmasi), belgilar ovozlashdan oldin tozalanadi. Salom (`GREETING_TEXT`) server ishga tushganda bir marta ovozlab saqlanadi — darhol chiqadi.
+  Kechikish (o'lchangan): savol tugagach birinchi audio ~3.8 s (LLM ~2 s + TTS birinchi bo'lak ~0.9 s) + brauzerning jim-kutishi 1.3 s.
+  `gemini-2.5-flash-lite` yangi foydalanuvchilarga yopilgan; `gemini-3.5-flash` ~4 s (fikrlash) — shuning uchun `gemini-2.5-flash`. 2.5 modellari tez orada
+  o'chirilishi mumkin — `GEMINI_CHAT_MODEL` bilan almashtiring.
+- **`live`**: Gemini Live (`GEMINI_LIVE_MODEL`=`gemini-3.8-live-extended-thinking`, `GEMINI_LIVE_THINKING`). ⚠️ gemini-3.x qo'lda activity ni qabul qilmaydi — avtomatik VAD +
+  `audio_stream_end`; gemini-2.5-* da qo'lda activity avtomatik yoqiladi.
 
-**Klipdan klipga sezilmay o'tish.** Xom AI klipda bosh o'zi 3–14 px (xom piksel) siljiydi, shuning uchun ikki klip xira-o'tishida «ikki bosh» chiqmasligi
-uchun: (1) `speaking` va `greeting` **doim boshidan** boshlanadi (ularning birinchi kadrida bosh kutish holatidagi o'rnida, ≤ 1.9 px);
-(2) `greeting` shunday qirqilganki, oxirida bosh yana kutish o'rniga qaytadi (≤ 1 px); (3) `speaking` dan `idle` ga esa pleyer boshning o'rni kutish
-holatiga mos kelgan oraliqni kutadi (`src/avatarClips.json`, ≤ 0.9 s; `nextExitDelay` — `src/avatarClips.ts`); (4) xira-o'tish 400 ms.
-Takrorlanish nuqtalari klip kadrlari o'lchab tanlangan: chok oddiy kadrlararo o'zgarishdan keskin emas.
-**Xom klipning birinchi ~12 kadri qorong'iroq** (AI asl rasm yorqinligidan o'z yorqinligiga o'tadi: jaket ~9%) — shu kadrlar kesib tashlangan,
-aks holda kutish aylanishi har bir necha soniyada yorqinlik «puls»ini berardi.
+### Pleyer (`src/AvatarVideo.tsx`, `src/avatarClips.ts`, `src/avatarClips.json`)
+- **Og'iz faqat ovoz bor paytda qimirlaydi**: brauzer ijro etilayotgan audio balandligini o'lchaydi (`liveAudio` level): ovoz bor → `speaking`, 0.17 s dan ko'p jim → chiqish.
+  Lab harakati jonli so'zlarga hece-hece sinxron **emas** — turli variantlar tasodifiy almashib, takrorlanish sezilmaydi.
+- **Chiqish faqat «chiqish oynasi»da**: og'iz yopiq (yoki deyarli yopiq) VA bosh kutish o'rnida (≤ 3.5 px) bo'lgan kadrda. Ovoz tugasa pleyer shu oynani kutadi
+  (eng uzog'i ~1.3 s), klipni o'sha kadrda **to'xtatadi** (lablar qayta ochilmasin) va 400 ms da `idle` ga xiralashtiradi. Ovoz qaytsa — klip to'xtagan joyidan davom etadi.
+  Oyna ro'yxati `avatarClips.json` da (har variant uchun `exits`, soniyalarda).
+- **Ulash**: ikki bufer (a/b), keyingi variant oldindan yuklanadi; ovoz davom etsa klip tugashidan 0.2 s oldin keyingisiga 250 ms xira-o'tish. Kirish har doim 0-kadrdan (200 ms).
+- Salom: birinchi ovozda boshlanadi; tugagach ovoz davom etsa `speaking` variantiga o'tadi.
 
-**Videolarni qayta tayyorlash** (boshqa xodim yoki yangi AI klip; kerak: ffmpeg). Xom klip — `<nom>_raw.mp4` (720×1280, 24 kadr/s, ovozsiz).
-Kadr raqamlari **har yangi klip uchun qayta o'lchanadi**: (a) takrorlanish chokini kadrlar farqi bo'yicha (bosh+yelka hududi, kichik farq) — `speaking` uchun
-37–197, (b) kirish kadrida bosh o'rni kutish holatiga mos (≤ 2 px), (c) `speaking` ichida kutish holatiga yaqin (≤ 3 px) kadrlar oralig'i (`avatarClips.json`),
-(d) boshlang'ich yorqinlik «rampasi» tugagan kadr (kutish — 12, salom — 14). Joriy qiymatlar bilan, har klip uchun (`speaking` va `greeting` — oddiy qirqim;
-`idle` — 12–36 kadrlar: ochiq ko'z oralig'i 12–28 ikki marta oldinga-orqaga, keyin 12–36 pirpirash bilan oldinga-orqaga; 112 kadr):
-```bash
-ENC="-an -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -g 24 -movflags +faststart -r 24"
-ffmpeg -i speaking_raw.mp4 -/filter_complex speaking.graph -map "[v]" $ENC speaking.mp4
-ffmpeg -i greeting_raw.mp4 -/filter_complex greeting.graph -map "[v]" $ENC greeting.mp4
-ffmpeg -i idle_raw.mp4     -/filter_complex idle.graph     -map "[v]" $ENC idle.mp4
-```
-Filtr grafiklari (`<P>` — pastdagi qator, har uch kanalda bir xil; `KEY` — qora fon filtri):
-```
-KEY = format=gbrp,geq=r='<P>ld(0)*ld(7)':g='<P>ld(1)*ld(7)':b='<P>ld(2)*ld(7)',format=yuv420p
-<P> = st(0,r(X,Y));st(1,g(X,Y));st(2,b(X,Y));st(3,(ld(0)+ld(1)+ld(2))/3);st(4,clip((ld(3)-30)/14,0,1));st(4,ld(4)*ld(4)*(3-2*ld(4)));st(5,clip((max(ld(0),max(ld(1),ld(2)))-min(ld(0),min(ld(1),ld(2)))-7)/6,0,1));st(5,ld(5)*ld(5)*(3-2*ld(5)));st(6,clip((ld(1)-max(ld(0),ld(2))-2)/4,0,1));st(6,ld(6)*ld(6)*(3-2*ld(6)));st(7,max(ld(4),max(ld(5),ld(6))));
-speaking.graph:  [0:v]select='between(n,37,197)',setpts=N/24/TB,KEY[v]
-greeting.graph:  [0:v]select='between(n,14,123)',setpts=N/24/TB,KEY[v]
-idle.graph:      [0:v]select='between(n,12,36)',setpts=N/24/TB,split=2[all][allb];[all]select='between(n,0,16)',setpts=N/24/TB,split=2[o1][o2];[o2]reverse,select='between(n,1,15)',setpts=N/24/TB[or];[o1][or]concat=n=2:v=1:a=0,setpts=N/24/TB,split=2[A1][A2];[allb]split=2[f1][f2];[f2]reverse,select='between(n,1,23)',setpts=N/24/TB[fr];[f1][fr]concat=n=2:v=1:a=0,setpts=N/24/TB[B];[A1][A2][B]concat=n=3:v=1:a=0,setpts=N/24/TB,KEY[v]
-```
-**Orqa fon qora.** AI klipning foni to'q kulrang-ko'kimtir (yorqinligi 15–27, rangsiz), kiyim esa rangli. Har pikselda belgi `k = max(smooth(yorqinlik, 30→44),
-smooth(rang farqi max−min, 7→13), smooth(G − max(R,B), 2→6))`, natija = piksel × `k`: to'q va rangsiz/ko'kimtir piksel (fon, qora soch, poyabzal) qora bo'ladi,
-yuz, kiyim, jez tugma, oq yoqa qoladi. ffmpeg'da `geq` filtri (`format=gbrp`, har kanalda `st()/ld()` registrlari bilan bir xil ifoda); filtr grafigi
-uzun bo'lgani uchun faylga yozib `-/filter_complex fayl.graph` bilan beriladi. Sahna foni ham qora (`src/styles.css` — `.scene`, `.avatar-video`).
-Fayllar mazmuni o'zgarsa `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
+### Videolarni qayta tayyorlash (yangi xodim yoki yangi klip)
+Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build_assets.py`, `align.py`, `exits.py`; Python + OpenCV + numpy + ffmpeg).
+1. Higgsfield: uy kadri (qora fon) + audio ko'rsatma (gap iboralari orasida ~0.5 s jim) → klip (`GENERATE.md`: prompt va qabul mezonlari: ifoda mo'tadil, ko'z qisish/tabassum yo'q,
+   boshlanish/tugash pozasi mos). Har klip qo'lda ko'zdan kechiriladi.
+2. `python build_assets.py "idle=idle.mp4:24:120" "greeting=greeting.mp4" "speak=s1.mp4" "speak=s2.mp4" …` → `out/` (videolar + `avatarClips.json`). Bosqichlar:
+   - **moslash** (`align.py`): klip uchlari kutish klipiga nisbatan 5 hududda (bosh, ko'krak, etak, tizza, poyabzal) o'lchanadi, butun klipga BITTA afin siljish (ko'chirish +
+     vertikal masshtab, Lanczos4) qo'llanadi — AI klipni 2–4 px boshqacha joylaydi;
+   - **yorqinlik/tiniqlik** (`tone_match`, `sharp_match`, `ramp_fix`): AI klip kutish klipidan xiraroq/qoraroq chiqadi — Y gistogrammasi va unsharp miqdori kutish klipiga moslanadi;
+     boshlanish yorqinlik rampasi tekislanadi;
+   - **uzun jim oraliqlarni qisqartirish** (`trim_pauses`): AI klipdagi audio-pauzalarga mos uzun yopiq-og'iz oraliqlari jonli ovozda boshqa joyga tushadi (gap o'rtasida og'iz 1 s yopilib qolardi).
+     >0.25 s oraliqlar o'rtasidan qisqartiriladi (tikuv — eng o'xshash ikki kadr + 2 kadr aralashtirish); salomning boshidagi jim kutish kesiladi;
+   - **chiqish oynalari** (`exits.py`): og'iz yopiqligi chegarasi = kutish klipidagi og'iz farqining p99 × 1.05..1.45, bosh o'rni ≤ 2.5..3.5 px;
+   - kodlash: x264 `-crf 18 -g 24`, 24 kadr/s, faststart.
+3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
 
-**Sinov** — `npm run build && npm run test:transitions` (haqiqiy Chrome, soxta Gemini oqimi): har bir o'tish turi alohida o'lchanadi — kechikish, qotish
+### Sinov
+`npm run build && npm run test:transitions` (haqiqiy Chrome, soxta Gemini oqimi): har bir o'tish turi alohida o'lchanadi — kechikish, qotish
 (≤ 110 ms), kadrlararo sakrash (furajka/soch, yuz, tana: shu videoning o'zidagi eng katta oddiy qadamdan ×1.15+0.5 dan oshmasin) va qorayish chaqnashi
-(oldingi/keyingi holatga nisbatan ≤ 4%). Ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi (33 ms o'rniga 100–230 ms) — >100 ms oraliqli juftliklar va
-«Suhbatni boshlash/Tugatish» bosilgan payt (sahifa interfeysi o'zgaradi) hisobga olinmaydi. `THROTTLE=4` — zaif noutbuk, `VERBOSE=1` — har o'tish alohida,
-`DUMP_DIR=…` — o'tish kadrlarini saqlash.
+(≤ 6%). Ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi — >100 ms oraliqli juftliklar va «Suhbatni boshlash/Tugatish» bosilgan payt hisobga olinmaydi.
+`THROTTLE=4` — zaif noutbuk, `VERBOSE=1` — har o'tish alohida, `DUMP_DIR=…` — o'tish kadrlarini saqlash.
 
 **Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi** va joriy
 videolar bilan **mos emas** (boshqa o'lcham, boshqa o'tish nuqtalari). Faqat arxiv uchun.
@@ -121,8 +123,9 @@ npm run record:avatar -- --preview=../.tmp/prev    # video o'rniga PNG kadrlar (
 
 - ✅ Backend: `/faq`, `/avatar/ask` (faq/web/redirect klassifikatsiya), `/search/official` (grounding), suhbat log
 - ✅ Frontend: avatar videolari (salom / gapirish / kutish; haqiqiy xodim rasmidan AI yaratgan, tik to'liq bo'y), jonli ovozli suhbat UI
-- ⏳ Kerak: `GEMINI_API_KEY` (web-grounding + kelajakda Gemini TTS), galogramma apparati
-- 🔜 Keyingi: o'zbek TTS sifati, kiosk fullscreen, statistika, ko'p FAQ
+- ✅ Ovoz: Gemini matn modeli + Gemini TTS (`gemini-3.8-flash-tts`, o'zbekcha talaffuz Live'dan yaxshi)
+- ⏳ Kerak: `GEMINI_API_KEY`, galogramma apparati
+- 🔜 Keyingi: 15 tagacha gapirish varianti, ovoz kechikishini kamaytirish, kiosk fullscreen, statistika, ko'p FAQ
 
 ## Stack
 FastAPI · SQLAlchemy 2.0 · google-genai · React 18 · TypeScript · Vite · (yozib olish uchun, saytda yo'q:) Three.js + R3F + drei · puppeteer-core · WebCodecs
