@@ -36,3 +36,8 @@ Prompt: *Static locked-off camera. A woman in a dark green customs officer unifo
 
 ## Keyin
 Qirqish (ffmpeg), o'tish nuqtalari (`avatarClips.json`: og'iz yopiq + bosh o'rni), pleyer (400 ms xira-o'tish, chiqish nuqtasini kutadi), lokal demo, so'ng deploy uchun ruxsat.
+
+## Salom v8 (qo'l avval boshga yetadi, keyin ovoz)
+`audio_references` = 1.3 s jim + nutq (`Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman.`, ~7.5 s), duration 8.
+Prompt: *Static locked-off camera. The same woman first raises her right hand smoothly and calmly to the brim of her side cap in a formal respectful salute during the first 1.2 seconds, with her lips closed and silent. Only when her hand touches the cap does she begin to speak, lip movements synchronized with the audio, holding the salute while she says the first greeting. After the first sentence she smoothly lowers her hand to her side while continuing to speak, then closes her lips, ending in exactly the starting pose. Calm neutral professional expression, minimal facial expression, no exaggerated smile, no pursed lips, no winking, eyes open with natural blinks. Pure solid black background, identical framing and lighting.*
+Natija: qo'l 0.75 s da boshga yetadi, og'iz ~1.54 s da ochiladi → `GREETING_SPEECH=1.54 python build_assets.py ...` (frontend audioni shu paytgacha kechiktiradi).

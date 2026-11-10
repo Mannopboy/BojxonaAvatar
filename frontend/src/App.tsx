@@ -1,12 +1,15 @@
 import { useRef, useState } from "react";
 import { AvatarVideo } from "./AvatarVideo";
-import { startLive, type LiveHandle, type LiveState } from "./liveAudio";
+import { GREETING_SPEECH_START_S } from "./avatarClips";
+import { newTurnInfo, startLive, type LiveHandle, type LiveState, type TurnInfo } from "./liveAudio";
 import { micErrorMessage } from "./micError";
 
 export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
   const [error, setError] = useState("");
   const [greetKey, setGreetKey] = useState(0);
+  const [greetStart, setGreetStart] = useState(0); // birinchi (salom) audio keldi — salom videosi boshlanadi
+  const turnRef = useRef<TurnInfo>(newTurnInfo()); // javob holati (AvatarVideo: jumlalar orasida og'iz yopilib ketmasin, ovoz tugashi oldindan ma'lum)
   const levelRef = useRef(0); // avatar ovozining balandligi — og'iz FAQAT ovoz bor paytda qimirlaydi (AvatarVideo)
   const handleRef = useRef<LiveHandle | null>(null);
 
@@ -20,6 +23,9 @@ export default function App() {
       handleRef.current = await startLive({
         onState: (s) => setState(s),
         onLevel: (v) => (levelRef.current = v),
+        onGreetAudio: () => setGreetStart((k) => k + 1),
+        greetDelayS: Math.max(0, GREETING_SPEECH_START_S - 0.05), // video ~50 ms keyin boshlanadi
+        turnRef,
         onError: (msg) => {
           setError(msg);
           setState("error");
@@ -36,6 +42,7 @@ export default function App() {
     handleRef.current?.stop();
     handleRef.current = null;
     levelRef.current = 0;
+    turnRef.current = newTurnInfo();
     setState("idle");
   }
 
@@ -62,7 +69,7 @@ export default function App() {
       </header>
 
       <div className="scene">
-        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} />
+        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} turnRef={turnRef} />
         {status && <div className="status">{status}</div>}
       </div>
 

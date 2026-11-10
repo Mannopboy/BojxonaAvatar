@@ -56,7 +56,7 @@ Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga
 |-------|------|--------|
 | `idle.mp4` (~5 s) | tinglayotgan avatar, og'iz yopiq, bitta pirpirash; takrorlanadi | ovoz yo'q: tinglayotganda, javob tugagach |
 | `speaking-01..NN.mp4` (6–8 s) | gapirish **variantlari** (turli lab harakati); har klip uy pozasida boshlanib tugaydi | **ovoz eshitilayotganda**: tasodifiy variant, tugayotganda keyingisi (oldingisidan boshqa) ulanadi |
-| `greeting.mp4` (~6.5 s) | qo'li bilan salom, bir marta; og'iz salom bilan birga boshlanadi | suhbat boshlanib, avatar **birinchi marta gapirganda** (ovoz kelmasa 15 s dan keyin) |
+| `greeting.mp4` (8 s) | qo'li bilan salom, bir marta: qo'l ~0.75 s da boshga yetadi (lablar yopiq), og'iz ~1.5 s da ochiladi | birinchi salom audiosi kelishi bilan; **ovoz qo'l boshga yetgach chalinadi** (ovoz kelmasa 15 s dan keyin) |
 
 ### Ovoz (backend)
 Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
@@ -64,6 +64,9 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   tushunadi, matn javob beradi, oxirgi 4 savol-javob eslab qolinadi) → **Gemini TTS `gemini-3.8-flash-tts`** (oqimli) → brauzer. Kod: `backend/app/tts_voice.py`.
   Foydalanuvchi Live va TTS namunalarini eshitib TTS ni tanladi: Live modelida o'zbekcha so'zlar noto'g'ri talaffuz qilinardi.
   Protokol `/ws/live` bilan bir xil (`ready`, PCM16 24 kHz binar audio, `transcript`, `turn_complete`) — frontend o'zgarmaydi.
+  **Ovoz barqarorligi:** har javob BITTA TTS chaqiruvida ovozlanadi (`temperature=0.2`, `seed=7`: `GEMINI_TTS_TEMPERATURE`, `GEMINI_TTS_SEED`). Standart haroratda (1.0) bir xil matn har
+  chaqiruvda turlicha o'qildi (o'lchangan: davomiylik ±0.65 s / 7 s, balandlik ±30%) — suhbat o'rtasida ovoz «qalinlashib/o'zgarib» qolgandek eshitilardi; endi davomiylik ±0.05 s,
+  balandlik ±5%. Kvota (429) bo'lsa 1.5 s kutib 3 martagacha qayta uriniladi.
   ⚠️ TTS ga «… o'qi: matn» kabi ko'rsatma **qo'shilmaydi**: model uni ovoz chiqarib o'qiydi (o'lchangan: 6.6 s o'rniga 15 s). Javob matni sonlarni so'z bilan
   yozadi (tizim ko'rsatmasi), belgilar ovozlashdan oldin tozalanadi. Salom (`GREETING_TEXT`) server ishga tushganda bir marta ovozlab saqlanadi — darhol chiqadi.
   Kechikish (o'lchangan): savol tugagach birinchi audio ~3.8 s (LLM ~2 s + TTS birinchi bo'lak ~0.9 s) + brauzerning jim-kutishi 1.3 s.
@@ -74,12 +77,27 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
 
 ### Pleyer (`src/AvatarVideo.tsx`, `src/avatarClips.ts`, `src/avatarClips.json`)
 - **Og'iz faqat ovoz bor paytda qimirlaydi**: brauzer ijro etilayotgan audio balandligini o'lchaydi (`liveAudio` level): ovoz bor → `speaking`, 0.17 s dan ko'p jim → chiqish.
+  Javob davomida (`turnRef`: audio kelganidan to `turn_complete` va ijro tugaguncha) jumlalar orasidagi pauza 1.5 s gacha gapirishni uzmaydi — TTS jumlalari orasida og'iz yopilib-ochilmasin.
   Lab harakati jonli so'zlarga hece-hece sinxron **emas** — turli variantlar tasodifiy almashib, takrorlanish sezilmaydi.
-- **Chiqish faqat «chiqish oynasi»da**: og'iz yopiq (yoki deyarli yopiq) VA bosh kutish o'rnida (≤ 3.5 px) bo'lgan kadrda. Ovoz tugasa pleyer shu oynani kutadi
-  (eng uzog'i ~1.3 s), klipni o'sha kadrda **to'xtatadi** (lablar qayta ochilmasin) va 400 ms da `idle` ga xiralashtiradi. Ovoz qaytsa — klip to'xtagan joyidan davom etadi.
-  Oyna ro'yxati `avatarClips.json` da (har variant uchun `exits`, soniyalarda).
-- **Ulash**: ikki bufer (a/b), keyingi variant oldindan yuklanadi; ovoz davom etsa klip tugashidan 0.2 s oldin keyingisiga 250 ms xira-o'tish. Kirish har doim 0-kadrdan (200 ms).
-- Salom: birinchi ovozda boshlanadi; tugagach ovoz davom etsa `speaking` variantiga o'tadi.
+- **Gap tugashida og'iz ovoz bilan birga yopiladi (farq ~0)**: TTS audiosi hammasi oldindan keladi, shuning uchun oxirgi ESHITILADIGAN tovush qachon tugashi oldindan ma'lum
+  (`liveAudio`: har chunkning oxirgi 10 ms blokli RMS ≥ 0.012 → `TurnInfo.audibleRemaining`, chiqish qurilmasi kechikishi `outputLatency` qo'shilgan; oxiridagi jimlik hisobga olinmaydi).
+  Tugashiga ≤ 3.5 s qolganda pleyer klipning «ushlab turish kadri»ni (`avatarClips.json` `holds`: lablar ANIQ yopiq kadrlar) tanlab, u oxirgi tovushdan ~50 ms oldin kelishi uchun
+  o'ynash tezligini sozlaydi (`planExit`: tanlash 0.7–1.4, kuzatishda 0.4–2.5 — erta yetib qolsa klip TO'XTAMAY sekinlashadi). Kadrga yetgach klip oxirgi tovushgacha (≤ 0.12 s) turadi
+  va darhol kutishga (400 ms xira-o'tish) o'tadi. O'lchangan (haqiqiy TTS audiosi, 10 yugurish): yopilish payti eshitilgan tovush tugashidan ~+15…+55 ms (1 kadrdan kam).
+  Oldindan ma'lum bo'lmasa (Live yoki mos kadr yo'q) — ovoz tugagach avval 0.7 s ushlab turish kadrini, keyin istalgan yopiq oynani kutadi (eng uzog'i ~1.9 s), klipni o'sha kadrda to'xtatadi.
+  **Yopiq og'iz mezoni:** og'iz hududi farqi (`exits.py` `md`) ≤ kutish klipi p99 × 1.26 (~10.0) — oyna; ≤ ×1.26×0.88 (~8.8) — ushlab turish kadri/o'tish nuqtasi. Eski ×1.45 (11.5) chegarada
+  tishlari ko'ringan ochiq og'iz ham «yopiq» hisoblanardi (kadrlarga qarab o'lchangan: yopiq lablar 7.8–9.3, tish ko'ringanda 11.2+); shu sabab og'iz ochiq turib to'xtab qolardi.
+  Klip qabul qilinishi: ushlab turish kadrlari ≥ 4 va eng uzun oraliq ≲ 2 s (aks holda ovoz tugashiga to'g'rilab bo'lmaydi — speak_03 shu sabab chiqarildi); kadr uy kadriga mos (aks holda — speak_07,
+  AI kadrni yaqinlashtirib yuborgan: `align.fit` xato beradi).
+- **Variantdan variantga FAQAT og'iz YOPIQ paytda va xira-o'tishsiz (bir kadrda) almashadi.** Og'iz ochiq paytda almashsa yoki xira-o'tish bo'lsa lablar «bijirlab» bilinadi (foydalanuvchi
+  shikoyati); yopiq paytda ikki yuz deyarli bir xil, shuning uchun bir kadrli almashish ko'rinmaydi. `build_assets.py` (`build_graph`) har (A, B) juftligi uchun A ning yopiq-og'iz oralig'i
+  markazi → B ning yopiq-og'iz oralig'i markazi (B da kamida 1.2 s qolsin) juftliklarini yuz hududi farqi bo'yicha saralaydi (`avatarClips.json` `graph.pairs["A-B"] = [[A kadri, B kadri, narx], …]`,
+  narx ≤ 3.0; 4.5 da bosh/yuz sakrashi test chegarasidan oshdi). Pleyer zaxira buferni B kadriga oldindan suradi, A shu oynaga yetganda B ijroni davom ettiradi (`pickTransition`);
+  zaxira variant shunday nuqtalari bor variantlardan tanlanadi (`pickLinked`). Mos nuqta topilmasa — variant oxirgi yopiq oynasiga yetganda keyingi variantning boshiga (uy kadri) bir kadrda o'tadi.
+  **Bosh/yuz bir kadrda, tana 200 ms xira-o'tish bilan:** AI klipning kiyim to'qimasi va nafasi har klipda biroz boshqacha, shuning uchun tana ham bir kadrda almashsa "chaqnaydi" (test: tana sakrashi 4–4.5);
+  eski klip yangisi ustida `out bodyfade` qatlami sifatida qoladi va CSS niqobi (`mask-image`, yoqadan yuqori ~27% shaffof) tufayli faqat yoqadan pastda 200 ms xiralashadi (tana sakrashi ~2.0).
+- **Salom**: video birinchi salom audiosi kelishi bilan boshlanadi, audio esa `GREETING_SPEECH_START_S` (`avatarClips.json` → `greeting.speechStart`, hozir 1.54 s) dan 0.05 s oldin
+  chalinadi (`liveAudio` `greetDelayS`) — qo'l boshga yetib borgandan keyin ovoz boshlanadi. Salom tugagach ovoz davom etsa `speaking` variantiga o'tadi.
 
 ### Videolarni qayta tayyorlash (yangi xodim yoki yangi klip)
 Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build_assets.py`, `align.py`, `exits.py`; Python + OpenCV + numpy + ffmpeg).
@@ -88,10 +106,15 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 2. `python build_assets.py "idle=idle.mp4:24:120" "greeting=greeting.mp4" "speak=s1.mp4" "speak=s2.mp4" …` → `out/` (videolar + `avatarClips.json`). Bosqichlar:
    - **moslash** (`align.py`): klip uchlari kutish klipiga nisbatan 5 hududda (bosh, ko'krak, etak, tizza, poyabzal) o'lchanadi, butun klipga BITTA afin siljish (ko'chirish +
      vertikal masshtab, Lanczos4) qo'llanadi — AI klipni 2–4 px boshqacha joylaydi;
+   - **bosh qulflash** (`stabilize`): AI klipda bosh kutish o'rnidan 1–4 px suzadi (o'lchangan: o'rtacha 1.4–2.4 px) — gapirishdan kutishga o'tganda bosh «sakrab», odam o'zgargandek
+     ko'rinardi. Furajka hududi siljishi HAR KADRDA o'lchanib, bosh va yoqa (y ≤ 330, 470 gacha so'nadi) kutish klipidagi o'rniga qaytariladi (o'rtacha qoldiq 0.3–0.6 px); tana joyida;
+   - **yuz moslash** (`flow_align`): yopiq-og'iz kadrlari o'rtachasi kutish klipining uy kadriga DIS optik oqimi bilan moslanadi, klip bo'yicha BITTA silliq siljish maydoni (qosh, ko'z, burun, lablar,
+     furajka qirralari 1–3 px farq qilardi; yuz |ΔLab| ~25% kamayadi); klip boshi/oxirida (uy kadri) tuzatish 0, ~0.5 s ichida to'liq kuchga kiradi;
    - **yorqinlik/tiniqlik** (`tone_match`, `sharp_match`, `ramp_fix`): AI klip kutish klipidan xiraroq/qoraroq chiqadi — Y gistogrammasi va unsharp miqdori kutish klipiga moslanadi;
      boshlanish yorqinlik rampasi tekislanadi;
    - **uzun jim oraliqlarni qisqartirish** (`trim_pauses`): AI klipdagi audio-pauzalarga mos uzun yopiq-og'iz oraliqlari jonli ovozda boshqa joyga tushadi (gap o'rtasida og'iz 1 s yopilib qolardi).
-     >0.25 s oraliqlar o'rtasidan qisqartiriladi (tikuv — eng o'xshash ikki kadr + 2 kadr aralashtirish); salomning boshidagi jim kutish kesiladi;
+     >0.25 s oraliqlar o'rtasidan qisqartiriladi (tikuv — eng o'xshash ikki kadr + 2 kadr aralashtirish); eski salom klipida (og'iz va qo'l bir vaqtda) boshidagi jim kutish `GREETING_HEAD=cut` bilan kesilardi; yangi salom klipida qo'l avval ko'tariladi (`GREETING_SPEECH=<s>` — og'iz boshlanish payti);
+   - **kadr-mos o'tish nuqtalari** (`build_graph`): variantlar juftligi bo'yicha, `avatarClips.json` `graph`;
    - **chiqish oynalari** (`exits.py`): og'iz yopiqligi chegarasi = kutish klipidagi og'iz farqining p99 × 1.05..1.45, bosh o'rni ≤ 2.5..3.5 px;
    - kodlash: x264 `-crf 18 -g 24`, 24 kadr/s, faststart.
 3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
@@ -99,7 +122,7 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 ### Sinov
 `npm run build && npm run test:transitions` (haqiqiy Chrome, soxta Gemini oqimi): har bir o'tish turi alohida o'lchanadi — kechikish, qotish
 (≤ 110 ms), kadrlararo sakrash (furajka/soch, yuz, tana: shu videoning o'zidagi eng katta oddiy qadamdan ×1.15+0.5 dan oshmasin) va qorayish chaqnashi
-(≤ 6%). Ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi — >100 ms oraliqli juftliklar va «Suhbatni boshlash/Tugatish» bosilgan payt hisobga olinmaydi.
+(≤ 6%; kutish → salom: ≤ 9% — qo'l ko'tarilganda sahna yorqinligi haqiqatan tushadi). Ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi — >100 ms oraliqli juftliklar va «Suhbatni boshlash/Tugatish» bosilgan payt hisobga olinmaydi.
 `THROTTLE=4` — zaif noutbuk, `VERBOSE=1` — har o'tish alohida, `DUMP_DIR=…` — o'tish kadrlarini saqlash.
 
 **Eski usul — 3D modeldan yozib olish.** ⚠️ `npm run record:avatar` `public/avatar/` ni 3D model videolari bilan **almashtirib yuboradi** va joriy

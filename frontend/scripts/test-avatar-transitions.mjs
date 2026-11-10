@@ -221,7 +221,10 @@ try {
     // salom o'tishlarida tananing o'zi harakatlanadi (qo'l ko'tariladi): u yerda tana farqi faqat kuzatiladi
     // tana: kutish klipi nafas olganda jaket ±1.5–1.8 px siljiydi, kirishdagi 200 ms xira-o'tishda bir kadrda ~3 gacha farq beradi (o'lchangan) — taglik 3.5
     const lim = (k) => Math.max(steadyMax[k] * 1.15 + 0.5, k === "body" ? 3.5 : 0);
-    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= LIMITS.flashPct &&
+    // kutish -> salom: qo'l o'tishdan keyingi 0.25-0.75 s da ko'tariladi, yelka/tirsak orqa fonga chiqadi — sahna yorqinligi HAQIQATAN tushadi (xira-o'tishning o'zi
+    // qorayish bera olmaydi: yuqori qatlam ostidagi qatlam bilan aralashadi). Shuning uchun bu turda chegara kengroq.
+    const flashLim = isGreet && type.startsWith("idle") ? 9 : LIMITS.flashPct;
+    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= flashLim &&
       w("cap") <= lim("cap") && w("face") <= lim("face") && (isGreet || w("body") <= lim("body"));
     if (!ok) bad++;
     // VERBOSE=1: har o'tish alohida (furajka/soch farqi eng katta bo'lgan payt o'tishga nisbatan, ms) — nosozlikni o'tishdan oldin/keyin ajratish uchun

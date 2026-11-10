@@ -27,7 +27,6 @@ MAX_UTTERANCE_S = 30.0
 HISTORY_TURNS = 4          # oldingi nechta savol-javob eslab qolinadi
 FIRST_PIECE_BYTES = 9600   # birinchi audio bo'lagi ~0.2 s (tez boshlash), qolganlari kattaroq
 PIECE_BYTES = 24000        # ~0.5 s
-MAX_TTS_PARALLEL = 2
 
 TTS_SYSTEM = (
     "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchilar bilan JONLI OVOZLI suhbat qilasan: "
@@ -110,17 +109,20 @@ def split_ready(buf: str, final: bool = False) -> tuple[list[str], str]:
 
 
 async def synth_stream(text: str):
-    """Matnni Gemini TTS bilan ovozlaydi — PCM16 24kHz bo'laklarini oqim sifatida beradi. Bo'sh/xato bo'lsa bir marta qayta urinadi."""
+    """Matnni Gemini TTS bilan ovozlaydi — PCM16 24kHz bo'laklarini oqim sifatida beradi. Past harorat + qat'iy seed: har chaqiruvda bir xil ovoz/tezlik/balandlik.
+    Bo'sh/xato bo'lsa qayta uriniladi (kvota 429 da — biroz kutib)."""
     text = clean_for_speech(text)
     if not text:
         return
     cfg = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
+        temperature=settings.gemini_tts_temperature,
+        seed=settings.gemini_tts_seed,
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice))
         ),
     )
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         got = False
         try:
             stream = await _gc().aio.models.generate_content_stream(model=settings.gemini_tts_model, contents=text, config=cfg)
@@ -132,10 +134,12 @@ async def synth_stream(text: str):
                             yield p.inline_data.data
             if got:
                 return
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             if got:  # yarmida uzildi — qaytadan boshlasak takrorlanadi
                 return
-        if attempt == 2:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                await asyncio.sleep(1.5 * attempt)  # kvota: biroz kutib qayta urinadi
+        if attempt == 3:
             return
 
 
@@ -172,74 +176,28 @@ async def _say_cached(ws: WebSocket, text: str) -> None:
         await _send_pcm(ws, pcm)
 
 
-async def _llm_sentences(contents: list, out_q: "asyncio.Queue[str | None]", full: list[str]) -> None:
-    """Gemini matn modeli javobini oqim bilan oladi, tugagan gaplarni out_q ga qo'yadi (None — tugadi)."""
+async def _llm_text(contents: list) -> str:
+    """Gemini matn modeli javobi (to'liq matn). Javob qisqa (2-4 gap) va model uni bir zumda beradi, shuning uchun oqim shart emas; butun javob BITTA TTS
+    chaqiruvida ovozlanadi (gaplarni alohida ovozlash ovoz tezligi/balandligini gap sayin o'zgartirardi va kvotani ko'p sarflardi)."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=TTS_SYSTEM, temperature=0.4, max_output_tokens=500)
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)  # tez javob: fikrlash o'chirilgan
-    buf = ""
-    try:
-        stream = await _gc().aio.models.generate_content_stream(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
-        async for ch in stream:
-            if ch.text:
-                buf += ch.text
-                ready, buf = split_ready(buf)
-                for s in ready:
-                    full.append(s)
-                    await out_q.put(s)
-        ready, buf = split_ready(buf, final=True)
-        for s in ready:
-            full.append(s)
-            await out_q.put(s)
-    finally:
-        await out_q.put(None)
+    r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
+    return clean_for_speech(r.text or "")[:900]
 
 
 async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
-    """Bitta javob: LLM oqimi → gaplar → (parallel) TTS → ketma-ket brauzerga."""
+    """Bitta javob: LLM matni -> bitta TTS oqimi -> brauzerga (birinchi bo'lak ~0.2 s, qolganlari ~0.5 s)."""
     contents = history[-HISTORY_TURNS * 2:] + [types.Content(role="user", parts=[user_part])]
-    sentences: asyncio.Queue = asyncio.Queue()
-    full: list[str] = []
-    llm_task = asyncio.create_task(_llm_sentences(contents, sentences, full))
-    sem = asyncio.Semaphore(MAX_TTS_PARALLEL)
-    order: asyncio.Queue = asyncio.Queue()  # (gap, audio_queue) — brauzerga ketma-ket tartibda uzatiladi
-
-    async def tts_job(text: str, q: asyncio.Queue) -> None:
-        try:
-            async with sem:
-                async for ch in synth_stream(text):
-                    await q.put(ch)
-        finally:
-            await q.put(None)
-
-    async def dispatcher() -> None:
-        while True:
-            s = await sentences.get()
-            if s is None:
-                await order.put(None)
-                return
-            q: asyncio.Queue = asyncio.Queue()
-            t = asyncio.create_task(tts_job(s, q))
-            _bg.add(t)
-            t.add_done_callback(_bg.discard)
-            await order.put((s, q))
-
-    disp = asyncio.create_task(dispatcher())
     spoke = False
     try:
-        while True:
-            item = await order.get()
-            if item is None:
-                break
-            text, q = item
+        text = await _llm_text(contents)
+        if text:
             await ws.send_text(json.dumps({"type": "transcript", "text": text}))
             piece = bytearray()
-            limit = FIRST_PIECE_BYTES if not spoke else PIECE_BYTES
-            while True:
-                ch = await q.get()
-                if ch is None:
-                    break
+            limit = FIRST_PIECE_BYTES
+            async for ch in synth_stream(text):
                 piece.extend(ch)
                 if len(piece) >= limit:
                     n = len(piece) // 2 * 2
@@ -250,12 +208,11 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
             if piece:
                 await ws.send_bytes(bytes(piece[: len(piece) // 2 * 2]))
                 spoke = True
-        await llm_task
         if not spoke:
             await _say_cached(ws, FALLBACK_TEXT)
         else:
             history.append(types.Content(role="user", parts=[user_part]))
-            history.append(types.Content(role="model", parts=[types.Part(text=" ".join(full))]))
+            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
     except WebSocketDisconnect:
         raise
     except Exception:  # noqa: BLE001
@@ -264,10 +221,6 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
                 await _say_cached(ws, ERROR_TEXT)
             except Exception:  # noqa: BLE001
                 pass
-    finally:
-        for t in (llm_task, disp):
-            if not t.done():
-                t.cancel()
 
 
 async def handle(ws: WebSocket) -> None:

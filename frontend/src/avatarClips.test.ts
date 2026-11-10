@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSET_V, SPEAKING_VARIANTS, assetUrl, nextExitDelay, pickVariant } from "./avatarClips";
+import { ASSET_V, GREETING_SPEECH_START_S, SPEAKING_VARIANTS, assetUrl, isHoldTime, nextExitDelay, pickTransition, pickVariant, planExit } from "./avatarClips";
 
 describe("nextExitDelay", () => {
   const exits = [
@@ -57,11 +57,11 @@ describe("haqiqiy gapirish variantlari", () => {
     expect(new Set(SPEAKING_VARIANTS.map((v) => v.file)).size).toBe(SPEAKING_VARIANTS.length);
   });
 
-  it("har variantda o'tish oralig'i yetarli: eng uzog'i bilan 1.6 s kutiladi (yopiq lablarsiz o'tishdan kutish yaxshi; real klipda o'lchangan 1.46 s)", () => {
+  it("har variantda o'tish oralig'i yetarli: eng uzog'i bilan 2.0 s kutiladi (haqiqiy yopiq lablarsiz o'tishdan kutish yaxshi; real klipda o'lchangan 1.67 s; ovoz tugashi oldindan ma'lum bo'lsa tezlik sozlanadi)", () => {
     for (const v of SPEAKING_VARIANTS) {
       let worst = 0;
       for (let t = 0; t < v.duration; t += 0.01) worst = Math.max(worst, nextExitDelay(v.exits, t, v.duration));
-      expect(worst, v.file).toBeLessThanOrEqual(1.6);
+      expect(worst, v.file).toBeLessThanOrEqual(2.0);
     }
   });
 
@@ -81,5 +81,73 @@ describe("haqiqiy gapirish variantlari", () => {
 describe("fayl manzili", () => {
   it("versiya bilan", () => {
     expect(assetUrl("idle.mp4")).toBe(`/avatar/idle.mp4?v=${ASSET_V}`);
+  });
+});
+
+describe("salom", () => {
+  it("og'iz boshlanadigan payt: manfiy emas va oqilona (salom videosi ~6-9 s)", () => {
+    expect(GREETING_SPEECH_START_S).toBeGreaterThanOrEqual(0);
+    expect(GREETING_SPEECH_START_S).toBeLessThan(3);
+  });
+});
+
+describe("planExit (ovoz tugashiga to'g'rilash)", () => {
+  const holds = [0.05, 1.1, 2.1, 3.1] as const;
+
+  it("ovoz tugashiga mos yopiq kadrni tanlaydi (tezlik 0.7..1.4 ichida)", () => {
+    const p = planExit(holds, 0.3, 1.0, 5); // 1.1 (dt 0.8 -> tezlik 0.8) yaroqli; 2.1 (dt 1.8) yaroqsiz
+    expect(p).not.toBeNull();
+    expect(p!.target).toBe(1.1);
+    expect(p!.rate).toBeGreaterThanOrEqual(0.7);
+    expect(p!.rate).toBeLessThanOrEqual(1.4);
+  });
+
+  it("tezligi 1 ga eng yaqin kadrni afzal ko'radi", () => {
+    const p = planExit(holds, 1.3, 1.8, 5); // 2.1 (dt .8 -> .44 yaroqsiz), 3.1 (dt 1.8 -> 1.0)
+    expect(p!.target).toBe(3.1);
+    expect(p!.rate).toBeCloseTo(1, 1);
+  });
+
+  it("mos kadr yo'q / ovoz tugagan bo'lsa — null", () => {
+    expect(planExit(holds, 1.3, 0.3, 5)).toBeNull();
+    expect(planExit(holds, 0.3, 0, 5)).toBeNull();
+    expect(planExit([], 0.3, 1, 5)).toBeNull();
+  });
+
+  it("klip tashqarisidagi kadrni tanlamaydi", () => {
+    expect(planExit([5.5], 4.0, 1.5, 5)).toBeNull();
+  });
+});
+
+describe("isHoldTime", () => {
+  it("ushlab turish kadriga yaqin (±0.04 s) bo'lsa true", () => {
+    expect(isHoldTime([1.0, 2.0], 1.03)).toBe(true);
+    expect(isHoldTime([1.0, 2.0], 1.2)).toBe(false);
+    expect(isHoldTime([], 1.0)).toBe(false);
+  });
+});
+
+describe("pickTransition (kadr-mos almashinuv)", () => {
+  it("noma'lum juftlik — null", () => {
+    expect(pickTransition(99, 98, 1, 0.4, 1.6)).toBeNull();
+  });
+
+  it("topilsa — so'ralgan oraliqda, A va B boshqa variant", () => {
+    const n = SPEAKING_VARIANTS.length;
+    let found = 0;
+    for (let a = 0; a < n; a++) {
+      for (let b = 0; b < n; b++) {
+        if (a === b) continue;
+        const tr = pickTransition(a, b, 1.0, 0.45, 1.6);
+        if (!tr) continue;
+        found++;
+        expect(tr.t).toBeGreaterThanOrEqual(1.45 - 1e-9);
+        expect(tr.t).toBeLessThanOrEqual(2.6 + 1e-9);
+        expect(tr.u).toBeGreaterThanOrEqual(0);
+        expect(tr.u).toBeLessThan(SPEAKING_VARIANTS[b].duration);
+        expect(tr.cost).toBeLessThanOrEqual(4.6);
+      }
+    }
+    if (n > 1) expect(found).toBeGreaterThan(0); // hech bo'lmasa ba'zi juftliklarda mos (yopiq-og'iz) nuqta bor
   });
 });

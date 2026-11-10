@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     voice_engine: str = "tts"
     gemini_tts_model: str = "gemini-3.8-flash-tts"
     gemini_chat_model: str = ""  # bo'sh bo'lsa gemini_text_model ishlatiladi
+    # TTS barqarorligi: standart haroratda (1.0) bir xil matn har chaqiruvda turlicha o'qiladi (o'lchangan: tezlik ±0.65 s / 7 s, balandlik ±30%, ohang ±4%) — suhbat
+    # o'rtasida ovoz "qalinlashib/o'zgarib" qolgandek eshitiladi. Past harorat + qat'iy seed shuni bartaraf etadi (davomiylik ±0.05 s).
+    gemini_tts_temperature: float = 0.2
+    gemini_tts_seed: int = 7
     greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman. Sizga qanday yordam bera olaman?"
 
     grounding_enabled: bool = True

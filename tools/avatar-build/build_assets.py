@@ -9,6 +9,7 @@ import json, os, subprocess, sys
 import cv2
 import numpy as np
 import align as A
+import exits as E
 
 FF = "C:/av/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v9.0.2.exe"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -107,8 +108,9 @@ def ramp_fix(frames, ramp=12):
     return out
 
 FACE_BOX = (60, 300, 270, 450)   # kadrlarni solishtirish hududi (shapka..iyak)
-SOFT_MOUTH_K = 1.05              # chiqish oynasi uchun yumshoq chegara: lablar deyarli yopiq (kutish tezroq: gap tugagach og'iz uzoq harakatlanmasin)
-SOFT_POSE_MAX = 3.5
+SOFT_MOUTH_K = 0.94             # chiqish oynasi uchun yumshoq chegara: lablar deyarli yopiq (kutish tezroq: gap tugagach og'iz uzoq harakatlanmasin)
+SOFT_POSE_MAX = 2.5
+HOLD_K = 0.88                    # klipni to'xtatib turish kadri: og'iz farqi chegaradan ham kichik (lablar aniq yopiq; ~9.4)
 CLOSE_POSE_MAX = 4.0             # kesish uchun bosh o'rni sharti (chiqish sharti POSE_MAX=2.5 dan yumshoqroq)
 KEEP_FRAMES = tuple(range(4, 13))   # yopiq og'iz oralig'ida qoladigan kadrlar soni (~0.17-0.33 s); tikuv yaxshi bo'lsa kam, bo'lmasa ko'proq
 
@@ -139,10 +141,13 @@ def trim_pauses(frames, md, pose, thr, ok):
     blend = {}
     for a, b in runs:
         L = b - a
-        if L <= 6:   # <= 0.25 s: tabiiy nafas/so'z orasidagi pauza, tegilmaydi
+        boundary = a == 0 or b == n   # klip boshi/oxiridagi yopiq oraliq: ulanishda ikkisi ketma-ket keladi, shuning uchun ayniqsa qisqa bo'lsin
+        if L <= (3 if boundary else 6):   # tabiiy nafas/so'z orasidagi pauza, tegilmaydi
             continue
+        keep_opts = (2, 3) if boundary else KEEP_FRAMES
+        thr_mult = 6.0 if boundary else 4.0
         best = None
-        for R in KEEP_FRAMES:
+        for R in keep_opts:
             if L <= R + 1:
                 continue
             for k1 in range(1, R):
@@ -150,17 +155,17 @@ def trim_pauses(frames, md, pose, thr, ok):
                 if j <= i + 1:
                     continue
                 raw = float(np.abs(face[i] - face[j]).mean())
-                d = raw + 0.35 * (R - 4)
+                d = raw + 0.35 * (R - 2)
                 if best is None or d < best[0]:
                     best = (d, i, j, raw)
-        if best is None or best[3] > 4.0 * adj + 1.0:
-            print(f"   kesish: {a}-{b} oralig'i ({L} kadr) kesilmadi (tikuv farqi {best[3] if best else -1:.1f} > {4.0 * adj + 1.0:.1f})")
+        if best is None or best[3] > thr_mult * adj + 1.0:
+            print(f"   kesish: {a}-{b} oralig'i ({L} kadr) kesilmadi (tikuv farqi {best[3] if best else -1:.1f} > {thr_mult * adj + 1.0:.1f})")
             continue
         _, i, j, _ = best
         cut.update(range(i + 1, j))
         blend[i] = (j, 0.33)
         blend[j] = (i, 0.33)
-    out, out_ok, out_soft = [], [], []
+    out, out_ok, out_soft, out_md = [], [], [], []
     for i in range(n):
         if i in cut:
             continue
@@ -169,11 +174,12 @@ def trim_pauses(frames, md, pose, thr, ok):
             o, w = blend[i]
             f = np.clip(f.astype(np.float32) * (1 - w) + frames[o].astype(np.float32) * w, 0, 255).astype(np.uint8)
         out.append(f)
-        out_ok.append(bool(md[i] <= thr and pose[i] <= 2.5))
+        out_ok.append(bool(md[i] <= thr * HOLD_K and pose[i] <= 2.5))   # aniq YOPIQ lablar (o'tish nuqtalari va ushlab turish kadrlari uchun)
+        out_md.append(float(md[i]))
         out_soft.append(bool(md[i] <= thr * SOFT_MOUTH_K and pose[i] <= SOFT_POSE_MAX))
     left = max([sum(1 for _ in g) for g in []] + [0])
     print(f"   kesish: {len(runs)} yopiq oraliq, {len(cut)} kadr ({len(cut) / 24:.2f} s) olib tashlandi, klip {n / 24:.2f} -> {len(out) / 24:.2f} s")
-    return out, out_soft, len(cut)
+    return out, out_soft, out_ok, out_md, len(cut)
 
 
 def ok_intervals(ok, fps=24.0):
@@ -185,6 +191,97 @@ def ok_intervals(ok, fps=24.0):
             iv.append([round(a / fps, 3), round(i / fps, 3)])
             a = None
     return iv
+
+
+GRAPH_MAXC = 3.0   # o'tish nuqtasi (4.5 da bir kadrli almashishda bosh/yuz sakrashi sezilardi): ikki klipning YOPIQ-OG'IZ kadrlarida yuz hududi farqi (60x80 kulrang, o'rtacha |farq|) shundan oshmasin
+
+
+def _centers(strict):
+    """Yopiq-og'iz (og'iz yopiq, bosh uy o'rnida) oraliqlarining markaziy kadrlari."""
+    out, a = [], None
+    for i, v in enumerate(list(strict) + [False]):
+        if v and a is None:
+            a = i
+        if not v and a is not None:
+            out.append((a + i - 1) // 2)
+            a = None
+    return out
+
+
+def build_graph(finals, stricts, maxc=GRAPH_MAXC):
+    """Gapirish variantlari orasida almashinish nuqtalari — FAQAT og'iz YOPIQ paytda. Foydalanuvchi: og'iz ochiq turganda klip almashsa bilinadi (xira-o'tishda
+    lablar "bijirlaydi"); og'iz yopiq paytda esa ikki kadr deyarli bir xil, shuning uchun xira-o'tishsiz, bir kadrda almashtirish ko'rinmaydi.
+    A klipning yopiq-og'iz oralig'i markazi (i) va B klipning yopiq-og'iz oralig'i markazi (u; B da kamida 1.2 s qolsin) — yuz hududi bo'yicha eng o'xshashlari
+    (ko'z pirpiraganda farq katta — chiqarib tashlanadi). Natija: {"a-b": [[i, u, narx], ...]}, har i uchun eng yaxshi 2 ta u."""
+    feats = []
+    for fr in finals:
+        feats.append(np.array([cv2.resize(cv2.cvtColor(f, cv2.COLOR_BGR2GRAY)[60:300, 270:450], (60, 80), interpolation=cv2.INTER_AREA).astype(np.float32).ravel() for f in fr]))
+    cent = [_centers(st) for st in stricts]
+    pairs = {}
+    for a, FA in enumerate(feats):
+        for b, FB in enumerate(feats):
+            if a == b:
+                continue
+            nB = len(FB)
+            ub = [u for u in cent[b] if nB - u >= 29]          # B da kamida ~1.2 s qolsin
+            ent = []
+            for i in cent[a]:
+                if i < 3:
+                    continue
+                cs = sorted((float(np.abs(FB[u] - FA[i]).mean()), u) for u in ub)[:2]
+                ent.extend([i, u, round(c, 2)] for c, u in cs if c <= maxc)
+            pairs[f"{a}-{b}"] = ent
+            print(f"   o'tish nuqtalari {a}->{b}: {len(ent)} ta (eng arzoni {min([e[2] for e in ent], default=-1)})")
+    return pairs
+
+def stabilize(frames, capoff, limit=4.0):
+    """Bosh (furajka) joyini HAR KADRDA kutish klipidagi o'rniga qulflaydi. AI klipda bosh 1-3 px suzadi: chiqishda (gapirish -> kutish) bosh "sakraydi" va
+    odam o'zgargandek ko'rinadi; foydalanuvchi ham gapirganda bosh qimirlamasin degan edi. Siljish faqat bosh va yelkagacha (y <= 330 to'liq, 470 gacha
+    silliq so'nadi) qo'llanadi; tana (jaket) o'z joyida qoladi. capoff — exits.py o'lchagan furajka hududi siljishi (kutish o'rtachasiga nisbatan)."""
+    h, w = frames[0].shape[:2]
+    ys = np.arange(h, dtype=np.float32)
+    wy = np.where(ys <= 330, 1.0, np.where(ys >= 470, 0.0, 0.5 * (1 + np.cos(np.pi * (ys - 330) / 140)))).astype(np.float32)
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), ys)
+    out, moved = [], []
+    for f, (dx, dy) in zip(frames, capoff):
+        dx = float(np.clip(dx, -limit, limit))
+        dy = float(np.clip(dy, -limit, limit))
+        if abs(dx) < 0.1 and abs(dy) < 0.1:
+            out.append(f)
+            continue
+        moved.append(max(abs(dx), abs(dy)))
+        out.append(cv2.remap(f, gx + dx * wy[:, None], gy + dy * wy[:, None], cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_CONSTANT))
+    print(f"   bosh qulflandi: {len(moved)}/{len(frames)} kadr siljitildi, o'rtacha {np.mean(moved) if moved else 0:.2f} px, eng katta {max(moved) if moved else 0:.2f} px")
+    return out
+
+
+def flow_align(frames, home_gray, ok, sigma=6.0, limit=3.0):
+    """Yopiq-og'iz kadrlari o'rtachasini kutish klipining uy kadriga (DIS optik oqim) moslaydi — klip bo'yicha BITTA doimiy, silliq siljish maydoni.
+    Qosh, ko'z, burun, lablar va furajka qirralari kutish klipidagi o'rniga tushadi (ular 1-3 px farq qilardi: gapirishdan kutishga o'tganda "odam o'zgardi").
+    Faqat bosh/yoqa hududida (y <= 380 to'liq, 520 gacha so'nadi). O'lchangan: yuz hududi |dLab| ~25% kamayadi."""
+    idx = [i for i, v in enumerate(ok) if v][:80] or list(range(min(40, len(frames))))
+    S = np.mean([frames[i].astype(np.float32) for i in idx], axis=0).astype(np.uint8)
+    sg = cv2.cvtColor(S, cv2.COLOR_BGR2GRAY)
+    flow = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM).calc(home_gray, sg, None)
+    fl = np.stack([cv2.GaussianBlur(flow[..., c], (0, 0), sigma) for c in (0, 1)], axis=-1)
+    h, w = sg.shape
+    ys = np.arange(h, dtype=np.float32)
+    wy = np.where(ys <= 380, 1.0, np.where(ys >= 520, 0.0, 0.5 * (1 + np.cos(np.pi * (ys - 380) / 140)))).astype(np.float32)
+    fl = np.clip(fl * wy[:, None, None], -limit, limit)
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), ys)
+    face = fl[60:300, 270:450]
+    print(f"   yuz moslash (optik oqim): o'rtacha siljish {np.abs(face).mean():.2f} px, eng katta {np.abs(fl).max():.1f} px ({len(idx)} yopiq kadr asosida)")
+    n = len(frames)
+    out = []
+    for i, f in enumerate(frames):
+        # klip boshi va oxiri AYNAN uy kadri (start_image = end_image): u yerda tuzatish 0; ~0.5 s ichida to'liq kuchga kiradi (AI yuzi asta uy kadridan "uzoqlashadi")
+        a = max(0.0, min(1.0, i / 12.0, (n - 1 - i) / 12.0))
+        a = a * a * (3 - 2 * a)
+        if a < 0.02:
+            out.append(f)
+            continue
+        out.append(cv2.remap(f, gx + a * fl[..., 0], gy + a * fl[..., 1], cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_CONSTANT))
+    return out
 
 
 
@@ -220,18 +317,33 @@ def main():
     xg = res[os.path.basename(greet)]
     g_fr = ramp_fix([A.warp(f, xg["align"]) for f in load(greet)])
     g_fr = sharp_match(tone_match(g_fr, idle_frames), idle_frames)
-    f0 = next((i for i, v in enumerate(xg["md"]) if i > 0 and v > xg["thr"]), 0)   # og'iz birinchi ochiladigan kadr
-    start = max(0, f0 - 2)                                                           # undan oldingi jim kutish kesiladi: og'iz va qo'l salom ovozi bilan birga boshlansin
-    print(f"   salom: og'iz {f0}-kadrda ochiladi, boshidan {start} kadr ({start / 24:.2f} s) kesildi")
-    g_fr = g_fr[start:]
+    start = 0
+    if os.environ.get("GREETING_HEAD", "keep") == "cut":   # eski salom klipi (og'iz va qo'l bir vaqtda): boshidagi jim kutish kesiladi
+        f0 = next((i for i, v in enumerate(xg["md"]) if i > 0 and v > xg["thr"]), 0)
+        start = max(0, f0 - 2)
+        print(f"   salom: og'iz {f0}-kadrda ochiladi, boshidan {start} kadr ({start / 24:.2f} s) kesildi")
+        g_fr = g_fr[start:]
+    # og'iz birinchi harakatlanadigan payt: qo'l ko'tarilayotganda (6 kadrdan keyin) lablar birinchi ochiladigan kadr
+    sp_frame = next((i for i, v in enumerate(xg["md"]) if i >= start + 2 and v > xg["thr"]), start + 2) - start
+    speech_start = float(os.environ.get("GREETING_SPEECH", round(sp_frame / 24.0, 3)))
+    print(f"   salom: og'iz {speech_start:.3f} s da boshlanadi (ovoz shu paytga kechiktiriladi)")
     encode(g_fr, os.path.join(OUT, "greeting.mp4"))
     variants = []
+    finals = []
+    stricts = []
+    ctx = E.prepare(idle[0], idle[1], idle[2])
     for i, pth in enumerate(speaks, 1):
         x = res[os.path.basename(pth)]
         name = f"speaking-{i:02d}.mp4"
-        s_fr = ramp_fix([A.warp(f, x["align"]) for f in load(pth)])
+        aff = [A.warp(f, x["align"]) for f in load(pth)]
+        stab = stabilize(aff, x["capoff"])                                   # bosh kutish o'rniga qulflanadi
+        _, _, _, ok0 = E.measure(ctx, [A.gray(f) for f in stab])             # barqarorlashdan keyingi yopiq-og'iz kadrlari
+        s_fr = ramp_fix(flow_align(stab, ctx["home"], ok0))                  # doimiy yuz moslash
         s_fr = sharp_match(tone_match(s_fr, idle_frames), idle_frames)
-        s_fr, s_ok, _ = trim_pauses(s_fr, x["md"], x["pose"], x["thr"], x["ok"])
+        _, pose, md, okm = E.measure(ctx, [A.gray(f) for f in s_fr])         # YAKUNIY tahlil (chiqish oynalari, kesish, o'tish nuqtalari shu kadrlar bo'yicha)
+        x = dict(x, poseStart=float(pose[0]), poseEnd=float(pose[-1]))
+        print(f"   yakuniy: bosh o'rni o'rtacha {pose.mean():.2f} px (eng katta {pose.max():.2f}), yopiq kadrlar {int(okm.sum())}/{len(okm)}")
+        s_fr, s_ok, s_strict, s_md, _ = trim_pauses(s_fr, md, pose, ctx["thr"], okm)
         encode(s_fr, os.path.join(OUT, name))
         dur = round(len(s_fr) / 24.0, 3)
         iv = ok_intervals(s_ok)
@@ -243,8 +355,18 @@ def main():
         mw = round(max(gaps), 2)
         ok = x["poseStart"] <= 1.5 and x["poseEnd"] <= 1.5 and iv and iv[0][0] == 0.0 and abs(iv[-1][1] - dur) < 0.1
         print(f"{name}: {dur} s, chiqish oraliqlari {len(iv)}, eng uzun kutish {mw} s, uchlari mos: {'HA' if ok else 'YOQ (qabul qilinmaydi!)'}")
-        variants.append({"file": name, "duration": dur, "exits": iv})
-    json.dump({"fps": 24, "speaking": {"variants": variants}}, open(os.path.join(OUT, "avatarClips.json"), "w"))
+        holds = []
+        for a_, b_ in iv:
+            idx = range(int(round(a_ * 24)), min(len(s_md), int(round(b_ * 24))))
+            if idx:
+                j = min(idx, key=lambda q: s_md[q])
+                if s_md[j] <= ctx["thr"] * HOLD_K:
+                    holds.append(round(j / 24.0, 3))
+        print(f"   ushlab turish kadrlari (lablar aniq yopiq): {len(holds)} ta")
+        variants.append({"file": name, "duration": dur, "exits": iv, "holds": holds})
+        finals.append(s_fr)
+        stricts.append(s_strict)
+    json.dump({"fps": 24, "greeting": {"speechStart": speech_start}, "speaking": {"variants": variants}, "graph": {"maxCost": GRAPH_MAXC, "pairs": build_graph(finals, stricts)}}, open(os.path.join(OUT, "avatarClips.json"), "w"))
     print("tayyor:", OUT)
 
 

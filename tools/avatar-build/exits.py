@@ -9,7 +9,7 @@ import align as A
 
 MOUTH = (196, 236, 324, 396)
 POSE_MAX = 2.5       # bosh o'rni kutish o'rnidan shuncha px dan kam farq qilsin
-MOUTH_K = 1.45       # yopiq og'iz chegarasi = kutish klipi og'iz farqining p99 × MOUTH_K (kadrlarga qarab sozlangan: yopiq lablar <= ~11.5, tishlar ko'ringanda >= 12)
+MOUTH_K = 1.26       # yopiq og'iz chegarasi = kutish klipi og'iz farqining p99 x MOUTH_K (~10.0). Eski 1.45 (11.5) tishlari ko'ringan ochiq og'izni ham "yopiq" deb hisoblardi: yopiq lablar 7.8-9.3, tish ko'ringanda 11.2+ (kadrlarga qarab o'lchangan)
 
 
 def load(path, lo=0, hi=None):
@@ -31,8 +31,8 @@ def mouth_patch(g, off):
     return cv2.GaussianBlur(s[y0:y1, x0:x1].astype(np.float32), (0, 0), 1.5)
 
 
-def main():
-    idle_path, s, e = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+def prepare(idle_path, s, e):
+    """Kutish klipi bo'yicha etalonlar: uy kadri, hududlar o'rtacha siljishi, og'iz etaloni va yopiq-og'iz chegarasi."""
     idle, _ = load(idle_path, s, e)
     ig = [A.gray(f) for f in idle]
     home = A.home_from_idle(ig)
@@ -44,6 +44,22 @@ def main():
     idle_md = np.array([np.abs(mouth_patch(g, o) - hm).mean() for g, o in zip(ig, io)])
     thr = float(np.percentile(idle_md, 99) * MOUTH_K)
     print(f"[uy] kutish: og'iz farqi p99 {np.percentile(idle_md, 99):.2f} -> yopiq chegara {thr:.2f}", file=sys.stderr)
+    return {"home": home, "ref": ref, "cap": cap, "cap_ref": cap_ref, "hm": hm, "thr": thr}
+
+
+def measure(ctx, g):
+    """Allaqachon moslangan kulrang kadrlar uchun: bosh siljishi (dx, dy kutishga nisbatan), bosh o'rni (px), og'iz farqi va yopiq-oyna belgisi."""
+    off = [A.region_offset(ctx["home"], x, ctx["cap"])[:2] for x in g]
+    rel = np.array([np.array(o) - ctx["cap_ref"] for o in off])
+    pose = np.hypot(rel[:, 0], rel[:, 1])
+    md = np.array([np.abs(mouth_patch(x, o) - ctx["hm"]).mean() for x, o in zip(g, off)])
+    ok = (pose <= POSE_MAX) & (md <= ctx["thr"])
+    return rel, pose, md, ok
+
+
+def main():
+    ctx = prepare(sys.argv[1], int(sys.argv[2]), int(sys.argv[3]))
+    home, ref, cap, thr = ctx["home"], ctx["ref"], ctx["cap"], ctx["thr"]
     result = []
     for path in sys.argv[4:]:
         fr, fps = load(path)
@@ -51,10 +67,7 @@ def main():
         g0 = [A.gray(f) for f in fr]
         p = A.fit(home, ref, g0, [0, n - 1])
         g = [A.gray(A.warp(f, p)) for f in fr]
-        off = [A.region_offset(home, x, cap)[:2] for x in g]
-        pose = np.array([np.hypot(*(np.array(o) - cap_ref)) for o in off])
-        md = np.array([np.abs(mouth_patch(x, o) - hm).mean() for x, o in zip(g, off)])
-        ok = (pose <= POSE_MAX) & (md <= thr)
+        rel, pose, md, ok = measure(ctx, g)
         iv, a = [], None
         for i, v in enumerate(list(ok) + [False]):
             if v and a is None:
@@ -69,8 +82,9 @@ def main():
         gaps.append(n / fps - last)
         res_end = {k: tuple(round(v - ref[k][j], 1) for j, v in enumerate(A.region_offset(home, g[-1], b)[:2])) for k, b in A.REG.items()}
         print(f"{path}: {n} kadr, {n / fps:.2f} s | moslash ax={p['ax']:.2f} ay={p['ay']:.2f} by={p['by']:.4f} | uy kadriga mos: {int(ok.sum())}/{n} | bosh o'rni boshida {pose[0]:.2f}, oxirida {pose[-1]:.2f} px | og'iz boshida {md[0]:.1f}, oxirida {md[-1]:.1f} | eng uzun kutish {max(gaps):.2f} s | oraliqlar {len(iv)} | oxiri (qoldiq px) {res_end}", file=sys.stderr)
-        result.append({"file": path.replace("\\", "/").split("/")[-1], "duration": round(n / fps, 3), "align": p, "exits": iv, "maxWait": round(max(gaps), 2), "poseStart": round(float(pose[0]), 2), "poseEnd": round(float(pose[-1]), 2), "mouthStart": round(float(md[0]), 1), "mouthEnd": round(float(md[-1]), 1), "thr": round(thr, 2), "ok": [int(v) for v in ok], "md": [round(float(v), 1) for v in md], "pose": [round(float(v), 2) for v in pose]})
+        result.append({"file": path.replace("\\", "/").split("/")[-1], "duration": round(n / fps, 3), "align": p, "exits": iv, "maxWait": round(max(gaps), 2), "poseStart": round(float(pose[0]), 2), "poseEnd": round(float(pose[-1]), 2), "mouthStart": round(float(md[0]), 1), "mouthEnd": round(float(md[-1]), 1), "thr": round(thr, 2), "ok": [int(v) for v in ok], "md": [round(float(v), 1) for v in md], "pose": [round(float(v), 2) for v in pose], "capoff": [[round(float(a), 3), round(float(b), 3)] for a, b in rel]})
     print(json.dumps(result))
 
 
-main()
+if __name__ == "__main__":
+    main()

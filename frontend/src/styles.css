@@ -71,6 +71,9 @@ body {
 .rig-face.on { opacity: 1; z-index: 2; transition: opacity 400ms linear; } /* AvatarVideo.tsx dagi FADE_MS */
 /* Ovoz qaytganda chiqish bekor: kutish klipi xira bo'lib ketadi (gapirish tagida to'liq ko'rinib turadi) */
 .rig-face.out { opacity: 0.01; z-index: 3; transition: opacity 400ms linear; }
+/* Variantdan variantga: yangi klip darhol (bosh/yuz bir kadrda almashadi), eski klip faqat yoqadan PASTDA 200 ms xira bo'ladi — kiyim to'qimasi va nafas har klipda biroz
+   boshqacha, tana ham bir kadrda almashsa "chaqnaydi". Niqob bosh/yoqa (~27%) gacha shaffof: u yerda eski klip ko'rinmaydi. */
+.rig-face.out.bodyfade { -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 27%, #000 40%); mask-image: linear-gradient(to bottom, transparent 0%, transparent 27%, #000 40%); }
 .rig-greeting { z-index: 3; opacity: 0.01; transition: opacity 400ms linear; }
 .rig-greeting.on { opacity: 1; transition: opacity 150ms linear; } /* salom ovoz bilan birga tez paydo bo'ladi */
 .status {
