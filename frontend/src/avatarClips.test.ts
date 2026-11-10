@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSET_V, SPEAKING_EXITS, assetUrl, nextExitDelay } from "./avatarClips";
+import { ASSET_V, SPEAKING_VARIANTS, assetUrl, nextExitDelay, pickVariant } from "./avatarClips";
 
 describe("nextExitDelay", () => {
   const exits = [
@@ -19,8 +19,8 @@ describe("nextExitDelay", () => {
   });
 
   it("klip oxirida — takrorlanib, birinchi oraliq boshigacha", () => {
-    expect(nextExitDelay(exits, 5.5, 6)).toBeCloseTo(1.5); // 0.5 s klip oxirigacha + 1 s
-    expect(nextExitDelay(exits, 13.5, 6)).toBe(0); // 13.5 % 6 = 1.5 — birinchi oraliq ichida
+    expect(nextExitDelay(exits, 5.5, 6)).toBeCloseTo(1.5);
+    expect(nextExitDelay(exits, 13.5, 6)).toBe(0);
   });
 
   it("noma'lum davomiylik yoki oraliqsiz — kutmaydi", () => {
@@ -29,22 +29,51 @@ describe("nextExitDelay", () => {
   });
 });
 
-describe("haqiqiy gapirish klipi", () => {
-  const DURATION = 161 / 24; // speaking.mp4: xom 37–197 kadrlar, 24 kadr/s
-
-  it("o'tish oralig'i yetarli: eng uzog'i bilan 1 s kutiladi (gapirish tugagach og'iz uzoq harakatlanmasin)", () => {
-    let worst = 0;
-    for (let t = 0; t < DURATION; t += 0.01) worst = Math.max(worst, nextExitDelay(SPEAKING_EXITS, t, DURATION));
-    expect(worst).toBeLessThanOrEqual(1);
+describe("pickVariant", () => {
+  it("oldingisidan farqli tanlaydi va hammasini qamrab oladi", () => {
+    const seen = new Set<number>();
+    for (let avoid = 0; avoid < 5; avoid++) {
+      for (let k = 0; k <= 100; k++) {
+        const i = pickVariant(5, avoid, () => k / 100.0001);
+        expect(i).not.toBe(avoid);
+        expect(i).toBeGreaterThanOrEqual(0);
+        expect(i).toBeLessThan(5);
+        seen.add(i);
+      }
+    }
+    expect(seen.size).toBe(5);
   });
 
-  it("oraliqlar klip ichida va tartiblangan", () => {
-    let prevEnd = -1;
-    for (const [a, b] of SPEAKING_EXITS) {
-      expect(a).toBeGreaterThanOrEqual(prevEnd);
-      expect(b).toBeGreaterThan(a);
-      expect(b).toBeLessThanOrEqual(DURATION + 1e-6);
-      prevEnd = b;
+  it("bitta variant bo'lsa — doim 0; avoid yo'q bo'lsa — cheklovsiz", () => {
+    expect(pickVariant(1, 0)).toBe(0);
+    expect(pickVariant(3, -1, () => 0.99)).toBe(2);
+    expect(pickVariant(3, -1, () => 0)).toBe(0);
+  });
+});
+
+describe("haqiqiy gapirish variantlari", () => {
+  it("kamida bitta variant bor, fayl nomlari noyob", () => {
+    expect(SPEAKING_VARIANTS.length).toBeGreaterThan(0);
+    expect(new Set(SPEAKING_VARIANTS.map((v) => v.file)).size).toBe(SPEAKING_VARIANTS.length);
+  });
+
+  it("har variantda o'tish oralig'i yetarli: eng uzog'i bilan 1.2 s kutiladi (gap tugagach og'iz uzoq harakatlanmasin)", () => {
+    for (const v of SPEAKING_VARIANTS) {
+      let worst = 0;
+      for (let t = 0; t < v.duration; t += 0.01) worst = Math.max(worst, nextExitDelay(v.exits, t, v.duration));
+      expect(worst, v.file).toBeLessThanOrEqual(1.2);
+    }
+  });
+
+  it("oraliqlar variant ichida va tartiblangan", () => {
+    for (const v of SPEAKING_VARIANTS) {
+      let prevEnd = -1;
+      for (const [a, b] of v.exits) {
+        expect(a).toBeGreaterThanOrEqual(prevEnd);
+        expect(b).toBeGreaterThan(a);
+        expect(b).toBeLessThanOrEqual(v.duration + 1e-6);
+        prevEnd = b;
+      }
     }
   });
 });

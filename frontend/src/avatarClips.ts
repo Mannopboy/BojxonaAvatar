@@ -1,5 +1,6 @@
 // Avatar kliplari. Videolar — AI yaratgan XOM videolar: piksellarga hech qanday ishlov berilmagan, faqat qirqilgan (ffmpeg, README).
-// Qo'shimcha harakat, qatlam yoki yumshatish yo'q. Klipdan klipga o'tish nuqtalari `avatarClips.json` da (kadrlar o'lchangan).
+// Gapirish — bir nechta XIL variant: og'iz harakati har safar bir xil takrorlanmasin deb pleyer ularni tasodifiy tanlaydi. Har variantning
+// boshi va oxiri bir xil uy kadri (og'iz yopiq, bosh o'z joyida) — shuning uchun variantlar ketma-ket ulanganda uzilish bilinmaydi.
 import clips from "./avatarClips.json";
 
 /**
@@ -15,15 +16,34 @@ export const FRAME_H = 1280;
 
 type Interval = readonly [number, number];
 
-/**
- * Gapirish klipidan kutish klipiga SEZILMAY o'tish mumkin bo'lgan oraliqlar (soniya, klip boshidan): shu oraliqlarda
- * boshning o'rni kutish holatidagi bosh o'rniga ≤ 3 px (xom piksel) yaqin, shuning uchun xira-o'tishda "ikki bosh" ko'rinmaydi.
- */
-export const SPEAKING_EXITS: readonly Interval[] = clips.speaking.exits.map(([a, b]) => [a, b] as const);
+export interface SpeakingVariant {
+  file: string;
+  /** soniya */
+  duration: number;
+  /**
+   * Gapirishdan kutishga SEZILMAY o'tish mumkin bo'lgan oraliqlar (soniya, variant boshidan): og'iz yopiq VA bosh kutish holatidagi
+   * o'rnida. Oxirgi oraliq variant oxirigacha boradi (variant uy kadrida tugaydi).
+   */
+  exits: readonly Interval[];
+}
+
+export const SPEAKING_VARIANTS: readonly SpeakingVariant[] = clips.speaking.variants.map((v) => ({
+  file: v.file,
+  duration: v.duration,
+  exits: v.exits.map(([a, b]) => [a, b] as const),
+}));
+
+/** Tasodifiy variant tanlaydi; `avoid` (oldingi variant) dan farqli (variant bittadan ko'p bo'lsa). avoid < 0 — cheklovsiz. */
+export function pickVariant(count: number, avoid: number, rnd: () => number = Math.random): number {
+  if (count <= 1) return 0;
+  if (avoid < 0 || avoid >= count) return Math.min(count - 1, Math.floor(rnd() * count));
+  const i = Math.min(count - 2, Math.floor(rnd() * (count - 1)));
+  return i >= avoid ? i + 1 : i;
+}
 
 /**
  * Klip `t` soniyada turganda, o'tish oralig'iga yetguncha necha soniya kutish kerak (0 — hozir o'tsa bo'ladi).
- * Klip takrorlanadi, shuning uchun oxiridan keyin keyingi oraliq boshidan hisoblanadi. duration noma'lum bo'lsa — kutmaydi.
+ * Oxiridan keyin keyingi takror boshidan hisoblanadi. duration noma'lum bo'lsa — kutmaydi.
  */
 export function nextExitDelay(exits: readonly Interval[], t: number, duration: number): number {
   if (exits.length === 0 || !Number.isFinite(duration) || duration <= 0 || !Number.isFinite(t)) return 0;
