@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import re
 import time
 import wave
@@ -55,26 +56,84 @@ FALLBACK_TEXT = "Kechirasiz, savolingizni aniq eshitmadim. Iltimos, yana bir bor
 ERROR_TEXT = "Kechirasiz, hozir javob bera olmadim. Iltimos, savolingizni qayta takrorlang."
 
 _client: genai.Client | None = None
-_block_until = 0.0  # TTS kunlik kvotasi tugagan bo'lsa — shu vaqtgacha (time.time()) yangi suhbatlar Gemini Live bilan ishlaydi
+_blocked: dict[str, float] = {}  # model -> shu vaqtgacha (time.time()) kunlik kvotasi tugagan
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+def _load_answers() -> list[dict]:
+    """Tayyor javoblar (lab harakati o'z ovoziga mos video klip frontendda: /avatar/answers/<id>.mp4). Savol shulardan biriga mos kelsa TTS chaqirilmaydi."""
+    try:
+        return json.load(open(os.path.join(ASSETS, "answers.json"), encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+ANSWERS = _load_answers()
+ANSWER_BY_ID = {a["id"]: a for a in ANSWERS}
+
+
+def _tts_models() -> list[str]:
+    return [m for m in (settings.gemini_tts_model, settings.gemini_tts_fallback_model) if m]
+
+
+def _model_ok(model: str) -> bool:
+    return time.time() >= _blocked.get(model, 0.0)
 
 
 def tts_available() -> bool:
-    """TTS kvotasi tugamagan bo'lsa True. Kunlik chegara (gemini-3.8-flash-tts: Tier 1 da kuniga 100 so'rov, loyiha bo'yicha) tugasa — False: live.py yangi suhbatni Gemini Live ga o'tkazadi."""
-    return time.time() >= _block_until
+    """Kamida bitta TTS modelining kunlik kvotasi tugamagan bo'lsa True (gemini-3.8-flash-tts: Tier 1 da kuniga 100 so'rov, loyiha bo'yicha; zaxira model — alohida kvota).
+    Hammasi tugasa — False: live.py yangi suhbatni Gemini Live ga o'tkazadi."""
+    return settings.tts_live_fallback or any(_model_ok(m) for m in _tts_models())
 
 
-def _note_quota(msg: str) -> bool:
-    """429 kunlik kvota xatosi bo'lsa — TTS ni retryDelay (yoki 1 soat) gacha o'chiradi. Qaytaradi: kunlik kvota tugadimi."""
-    global _block_until
+LIVE_READ_SYSTEM = (
+    "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasining virtual xodimisan (ayol). Foydalanuvchi bergan matnni AYNAN o'qi: so'z qo'shma, hech narsani o'zgartirma, "
+    "tushuntirma va salomlashma. Adabiy o'zbek tilida, so'zlarni to'g'ri talaffuz qilib, tabiiy, iliq, ravon va to'xtamasdan o'qi."
+)
+
+
+async def _live_read(text: str):
+    """Oxirgi zaxira: TTS modellarining kunlik kvotasi tugaganda matnni Gemini Live o'qib beradi (PCM16 24 kHz, real vaqtda keladi — brauzer oldindan to'playdi).
+    Shunda tayyor javob kliplari va matn mantig'i (tarix, faktlar) ishlashda davom etadi; faqat erkin javob ovozi Live ovozi bo'ladi."""
+    model = settings.gemini_live_model
+    kwargs: dict = dict(
+        response_modalities=["AUDIO"],
+        system_instruction=LIVE_READ_SYSTEM,
+        speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice))),
+    )
+    if "extended" in model:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_level=settings.gemini_live_thinking)
+    manual = model.startswith("gemini-2.5")
+    if manual:
+        kwargs["realtime_input_config"] = types.RealtimeInputConfig(automatic_activity_detection=types.AutomaticActivityDetection(disabled=True))
+    async with _gc().aio.live.connect(model=model, config=types.LiveConnectConfig(**kwargs)) as session:
+        if manual:
+            await session.send_realtime_input(activity_start=types.ActivityStart())
+        await session.send_realtime_input(text="Matn: " + text)
+        if manual:
+            await session.send_realtime_input(activity_end=types.ActivityEnd())
+        async for resp in session.receive():
+            if resp.data:
+                yield resp.data
+            sc = resp.server_content
+            if sc and sc.turn_complete:
+                break
+
+
+def _note_quota(model: str, msg: str) -> bool:
+    """429 kunlik kvota xatosi bo'lsa — shu modelni retryDelay (yoki 1 soat) gacha o'chiradi. Qaytaradi: kunlik kvota tugadimi."""
     if "429" not in msg and "RESOURCE_EXHAUSTED" not in msg:
         return False
     if "per_day" not in msg.lower() and "perday" not in msg.lower():
         return False
     m = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+)s", msg)
-    secs = min(int(m.group(1)), 24 * 3600) if m else 3600
-    _block_until = time.time() + secs
-    log.warning("TTS kunlik kvotasi tugadi: %d s gacha yangi suhbatlar Gemini Live bilan ishlaydi", secs)
+    # retryDelay ~18 soat bo'lishi mumkin, lekin amalda kvota oldinroq ochilgan (o'lchangan) — 10 daqiqadan keyin qayta tekshiriladi (muvaffaqiyatsiz urinish kvota sarflamaydi)
+    secs = min(int(m.group(1)), 600) if m else 600
+    _blocked[model] = time.time() + secs
+    log.warning("TTS kunlik kvotasi tugadi (%s): %d s", model, secs)
     return True
+
+
 _cache: dict[str, bytes] = {}
 _cache_lock = asyncio.Lock()
 _bg: set = set()  # fon vazifalariga havola (axlat yig'uvchi o'chirib yubormasin)
@@ -145,34 +204,48 @@ async def synth_stream(text: str):
             voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=settings.gemini_voice))
         ),
     )
-    for attempt in (1, 2, 3):
-        got = False
+    for model in _tts_models():
+        if not _model_ok(model):
+            continue
+        for attempt in (1, 2, 3):
+            got = False
+            try:
+                stream = await _gc().aio.models.generate_content_stream(model=model, contents=text, config=cfg)
+                async for ch in stream:
+                    for cand in ch.candidates or []:
+                        for p in (cand.content.parts if cand.content else None) or []:
+                            if p.inline_data and p.inline_data.data:
+                                got = True
+                                yield p.inline_data.data
+                if got:
+                    return
+            except Exception as e:  # noqa: BLE001
+                log.warning("TTS xato (%s, urinish %d): %s: %s", model, attempt, type(e).__name__, str(e)[:200])
+                if got:  # yarmida uzildi — qaytadan boshlasak takrorlanadi
+                    return
+                if _note_quota(model, str(e)):
+                    break  # kunlik kvota: keyingi (zaxira) modelga o'tadi
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    await asyncio.sleep(1.5 * attempt)  # daqiqalik kvota: biroz kutib qayta urinadi
+    if settings.tts_live_fallback:
         try:
-            stream = await _gc().aio.models.generate_content_stream(model=settings.gemini_tts_model, contents=text, config=cfg)
-            async for ch in stream:
-                for cand in ch.candidates or []:
-                    for p in (cand.content.parts if cand.content else None) or []:
-                        if p.inline_data and p.inline_data.data:
-                            got = True
-                            yield p.inline_data.data
-            if got:
-                return
+            async for ch in _live_read(text):
+                yield ch
         except Exception as e:  # noqa: BLE001
-            log.warning("TTS xato (urinish %d): %s: %s", attempt, type(e).__name__, str(e)[:200])
-            if _note_quota(str(e)):
-                return  # kunlik kvota: qayta urinish befoyda
-            if got:  # yarmida uzildi — qaytadan boshlasak takrorlanadi
-                return
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                await asyncio.sleep(1.5 * attempt)  # kvota: biroz kutib qayta urinadi
-        if attempt == 3:
-            return
+            log.warning("Live o'qish xatosi: %s: %s", type(e).__name__, str(e)[:200])
 
 
 async def cached_audio(text: str) -> bytes:
     """Qat'iy matnlar (salom, xato xabari) bir marta ovozlanib xotirada saqlanadi — keyingi suhbatlarda darhol chiqadi."""
     async with _cache_lock:
         if text not in _cache:
+            # salom: oldindan ovozlangan fayl (asosiy TTS ovozi) — kvota tugaganda ham, qayta ishga tushgandan keyin ham bir xil ovoz
+            try:
+                if open(os.path.join(ASSETS, "greeting.txt"), encoding="utf-8").read().strip() == text.strip():
+                    _cache[text] = open(os.path.join(ASSETS, "greeting.pcm"), "rb").read()
+                    return _cache[text]
+            except OSError:
+                pass
             buf = bytearray()
             async for ch in synth_stream(text):
                 buf.extend(ch)
@@ -202,15 +275,42 @@ async def _say_cached(ws: WebSocket, text: str) -> None:
         await _send_pcm(ws, pcm)
 
 
-async def _llm_text(contents: list) -> str:
-    """Gemini matn modeli javobi (to'liq matn). Javob qisqa (2-4 gap) va model uni bir zumda beradi, shuning uchun oqim shart emas; butun javob BITTA TTS
-    chaqiruvida ovozlanadi (gaplarni alohida ovozlash ovoz tezligi/balandligini gap sayin o'zgartirardi va kvotani ko'p sarflardi)."""
+def _clip_instruction() -> str:
+    if not ANSWERS:
+        return ""
+    lines = "\n".join(f"- {a['id']}: {a['when']}. Javob: «{a['text']}»" for a in ANSWERS)
+    return (
+        "\n\nTAYYOR JAVOBLAR (videosi oldindan yozilgan). Agar yo'lovchi savoli (o'zbek tilida) quyidagilardan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — "
+        "clip maydoniga uning id sini yoz, text maydoniga shu javob matnini AYNAN ko'chir. Boshqa hamma holatda (boshqa mavzu, bir nechta savol, rus tili, aniqlashtirish) clip='none' "
+        "va text ga o'z javobingni yoz.\n" + lines
+    )
+
+
+async def _llm_answer(contents: list) -> tuple[str | None, str]:
+    """Gemini matn modeli javobi: (tayyor javob id si yoki None, matn). Javob qisqa (2-4 gap), butun javob BITTA TTS chaqiruvida ovozlanadi (gaplarni alohida ovozlash
+    ovoz tezligi/balandligini gap sayin o'zgartirardi va kvotani ko'p sarflardi). Tayyor javob bo'lsa TTS umuman chaqirilmaydi."""
     model = settings.gemini_chat_model or settings.gemini_text_model
-    kwargs: dict = dict(system_instruction=TTS_SYSTEM, temperature=0.4, max_output_tokens=500)
+    kwargs: dict = dict(system_instruction=TTS_SYSTEM + _clip_instruction(), temperature=0.4, max_output_tokens=500)
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)  # tez javob: fikrlash o'chirilgan
+    if not ANSWERS:
+        r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
+        return None, clean_for_speech(r.text or "")[:900]
+    kwargs["response_mime_type"] = "application/json"
+    kwargs["response_schema"] = {
+        "type": "OBJECT",
+        "properties": {"clip": {"type": "STRING", "enum": ["none"] + [a["id"] for a in ANSWERS]}, "text": {"type": "STRING"}},
+        "required": ["clip", "text"],
+    }
     r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
-    return clean_for_speech(r.text or "")[:900]
+    try:
+        j = json.loads(r.text or "{}")
+    except ValueError:
+        return None, clean_for_speech(r.text or "")[:900]
+    clip = j.get("clip")
+    if clip in ANSWER_BY_ID:
+        return clip, ANSWER_BY_ID[clip]["text"]
+    return None, clean_for_speech(str(j.get("text") or ""))[:900]
 
 
 async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
@@ -218,7 +318,14 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
     contents = history[-HISTORY_TURNS * 2:] + [types.Content(role="user", parts=[user_part])]
     spoke = False
     try:
-        text = await _llm_text(contents)
+        clip, text = await _llm_answer(contents)
+        if clip:
+            # tayyor javob: brauzer o'z ovozi bilan yozilgan videoni ijro etadi (lab harakati ovozga mos), TTS chaqirilmaydi
+            await ws.send_text(json.dumps({"type": "transcript", "text": text}))
+            await ws.send_text(json.dumps({"type": "clip", "id": clip}))
+            history.append(types.Content(role="user", parts=[user_part]))
+            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+            return
         if text:
             await ws.send_text(json.dumps({"type": "transcript", "text": text}))
             piece = bytearray()
@@ -279,7 +386,7 @@ async def handle(ws: WebSocket) -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-    await ws.send_text(json.dumps({"type": "ready"}))
+    await ws.send_text(json.dumps({"type": "ready", "clips": [a["id"] for a in ANSWERS]}))
     if settings.live_greeting:
         task = asyncio.create_task(greet())
     try:

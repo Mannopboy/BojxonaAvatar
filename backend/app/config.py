@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # "live" — Gemini Live (yuqoridagi model). Foydalanuvchi 2026-11-10 da TTS ovozini tanladi (Live ovozida talaffuz xatolari bor edi).
     voice_engine: str = "tts"
     gemini_tts_model: str = "gemini-3.8-flash-tts"
+    # Asosiy TTS modelining kunlik kvotasi (Tier 1: kuniga 100 so'rov) tugasa — shu model (alohida kvota). Ikkalasi ham tugasa yangi suhbatlar Gemini Live'ga o'tadi.
+    gemini_tts_fallback_model: str = "gemini-3.8-flash-lite-tts"
+    tts_live_fallback: bool = True  # ikkala TTS modeli kvotasi tugasa — matnni Gemini Live o'qib beradi (tayyor javob kliplari ishlashda davom etadi)
     gemini_chat_model: str = ""  # bo'sh bo'lsa gemini_text_model ishlatiladi
     # TTS barqarorligi: standart haroratda (1.0) bir xil matn har chaqiruvda turlicha o'qiladi (o'lchangan: tezlik ±0.65 s / 7 s, balandlik ±30%, ohang ±4%) — suhbat
     # o'rtasida ovoz "qalinlashib/o'zgarib" qolgandek eshitiladi. Past harorat + qat'iy seed shuni bartaraf etadi (davomiylik ±0.05 s).

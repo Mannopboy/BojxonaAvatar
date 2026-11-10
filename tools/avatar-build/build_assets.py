@@ -370,4 +370,5 @@ def main():
     print("tayyor:", OUT)
 
 
-main()
+if __name__ == "__main__":
+    main()

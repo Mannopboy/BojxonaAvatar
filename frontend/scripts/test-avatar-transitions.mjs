@@ -22,6 +22,10 @@ const CHROME =
   process.env.CHROME_PATH ||
   ["C:/Program Files/Google/Chrome/Application/chrome.exe", "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find((p) => fs.existsSync(p));
 const THROTTLE = Number(process.env.THROTTLE || 1);
+// REAL=1: soxta Gemini oqimi o'rniga HAQIQIY backend (TARGET — ishlab turgan sayt, masalan dev server) va soxta mikrofon (MIC_WAV — savollar yozilgan WAV); REAL_S — suhbat davomiyligi (s).
+// Haqiqiy odamdek sinov: ovozli savol -> backend (LLM, TTS yoki tayyor javob klipi) -> avatar. Har o'tish xuddi shu chegaralar bilan o'lchanadi.
+const REAL = !!process.env.REAL;
+const REAL_S = Number(process.env.REAL_S || 120);
 // Chegaralar (o'lchangan shovqin ustiga zaxira bilan): kadr oralig'i 41.7 ms.
 // capPop/bodyPop — o'tish paytidagi eng katta kadrlararo farq, oddiy (o'tishsiz) p95 ustiga qo'shimcha: bosh doim qimirlaydi,
 // shuning uchun absolyut emas, nisbiy.
@@ -40,13 +44,15 @@ const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: process.env.HEADFUL ? false : true,
   defaultViewport: { width: 1280, height: 800 },
-  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-gpu-blocklist", ...(process.env.HEADFUL ? ["--mute-audio", "--window-size=1300,900"] : [])],
+  args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-gpu-blocklist", ...(process.env.HEADFUL ? ["--mute-audio", "--window-size=1300,900"] : []),
+    ...(REAL ? ["--mute-audio"] : []), ...(process.env.MIC_WAV ? ["--use-file-for-fake-audio-capture=" + process.env.MIC_WAV + "%noloop"] : [])],
 });
 try {
   const page = await browser.newPage();
   const cdp = await page.createCDPSession();
   if (THROTTLE > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE });
-  await page.evaluateOnNewDocument(() => {
+  if (REAL) await page.evaluateOnNewDocument(() => { window.__avatarDbg = []; });
+  else await page.evaluateOnNewDocument(() => {
     class FakeWS {
       constructor(url) { this.url = url; this.readyState = 0; this.binaryType = "blob"; window.__ws = this;
         setTimeout(() => { this.readyState = 1; this.onopen?.({}); this.onmessage?.({ data: JSON.stringify({ type: "ready" }) }); }, 300); }
@@ -81,9 +87,11 @@ try {
   await page.evaluate(() => {
     // 3 ta yuz klipi: idle va gapirish uchun ikki bufer (a, b)
     const faces = document.querySelectorAll(".rig-face");
-    const els = { idle: faces[0], a: faces[1], b: faces[2], greeting: document.querySelector(".rig-greeting") };
-    window.__t = { frames: { idle: [], a: [], b: [], greeting: [] }, cls: [] };
+    // answer — tayyor javob klipi qatlami (o'z ovozi bilan); eski yig'malarda yo'q
+    const els = { idle: faces[0], a: faces[1], b: faces[2], greeting: document.querySelector(".rig-greeting"), answer: document.querySelector(".rig-answer") };
+    window.__t = { frames: { idle: [], a: [], b: [], greeting: [], answer: [] }, cls: [] };
     for (const [n, v] of Object.entries(els)) {
+      if (!v) continue;
       const cb = (now, meta) => { window.__t.frames[n].push([performance.timeOrigin + now, meta.mediaTime]); v.requestVideoFrameCallback(cb); };
       v.requestVideoFrameCallback(cb);
       new MutationObserver(() => window.__t.cls.push([performance.timeOrigin + performance.now(), n, v.className])).observe(v, { attributes: true, attributeFilter: ["class"] });
@@ -100,17 +108,25 @@ try {
   await new Promise((r) => setTimeout(r, 1200));
   await cdp.send("Page.startScreencast", { format: "jpeg", quality: 85, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 });
   const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
-  // 1-suhbat: qisqa nutq (3 s) → salom 6 s davom etadi → ovoz yo'q → salom → KUTISH
-  await clickTalk(); await wait(1.2);
-  await page.evaluate(() => window.__speak([[3, 0]])); await wait(10);
-  await clickTalk(); await wait(1.5);
-  // 2-suhbat: uzun nutq → salom → GAPIRISH, so'ng pauzalar bilan kutish ↔ gapirish, oxirida uzoq kutish (loop choki)
-  await clickTalk(); await wait(1.2);
-  await page.evaluate(() => window.__speak([[16, 1.0], [3, 0.9], [4, 1.5], [2.5, 0.8], [3, 0.7], [2, 0]])); await wait(37);
-  await wait(6); // uzoq kutish: kutish klipi ~4.6 s da loop qiladi
-  await clickTalk(); await wait(1);
+  if (REAL) {
+    // haqiqiy suhbat: salom, so'ng MIC_WAV dagi savollar va backend javoblari
+    await clickTalk(); await wait(REAL_S);
+    await clickTalk(); await wait(1);
+  } else {
+    // 1-suhbat: qisqa nutq (3 s) → salom 6 s davom etadi → ovoz yo'q → salom → KUTISH
+    await clickTalk(); await wait(1.2);
+    await page.evaluate(() => window.__speak([[3, 0]])); await wait(10);
+    await clickTalk(); await wait(1.5);
+    // 2-suhbat: uzun nutq → salom → GAPIRISH, so'ng pauzalar bilan kutish ↔ gapirish, oxirida uzoq kutish (loop choki)
+    await clickTalk(); await wait(1.2);
+    await page.evaluate(() => window.__speak([[16, 2.2], [3, 2.0], [4, 2.5], [2.5, 2.1], [3, 2.0], [2, 0]])); await wait(46); // pauzalar > 1.5 s: javob davomidagi ushlab turish (VOICE_HOLD_TURN_MS) dan uzun — kutish <-> gapirish o'tishlari sinaladi
+    await wait(6); // uzoq kutish: kutish klipi ~4.6 s da loop qiladi
+    await clickTalk(); await wait(1);
+  }
   await cdp.send("Page.stopScreencast");
   const T = await page.evaluate(() => window.__t);
+  const DBG = REAL ? await page.evaluate(() => window.__avatarDbg || []) : [];
+  const ORIGIN = await page.evaluate(() => performance.timeOrigin);
   T.frames.speaking = [...T.frames.a, ...T.frames.b].sort((x, y) => x[0] - y[0]); // gapirish — ikkala bufer kadrlari
 
   // --- kadrlar: har hudud alohida qirqib olinadi (kulrang)
@@ -131,23 +147,26 @@ try {
   const bright = dec.map((f) => ({ t: f.t, b: f.all.reduce((a, v) => a + v, 0) / f.all.length }));
 
   // --- ko'rinadigan holat vaqt chizig'i: salom ("on") hammasi ustida, aks holda "on" yuz klipi
-  const cur = { idle: "", a: "", b: "", greeting: "" };
+  const cur = { idle: "", a: "", b: "", greeting: "", answer: "" };
   const trans = [];
   let state = "idle";
   const on = (c) => /\bon\b/.test(c);
-  const stateOf = () => (on(cur.greeting) ? "greeting" : on(cur.a) || on(cur.b) ? "speaking" : "idle");
+  const stateOf = () => (on(cur.answer) ? "answer" : on(cur.greeting) ? "greeting" : on(cur.a) || on(cur.b) ? "speaking" : "idle");
   const timeline = []; // [t, {idle, a, b, greeting: class}]
   let lastSl = null; // gapirish buferi (a/b): variantdan variantga ulanishni aniqlash uchun
-  for (const [t, n, c] of T.cls) {
+  for (let ci = 0; ci < T.cls.length; ci++) {
+    const [t, n, c] = T.cls[ci];
     cur[n] = c;
     timeline.push([t, { ...cur }]);
+    // React bitta commitda ikki qatlam klassini o'zgartiradi (eski: out, yangi: on) — MutationObserver ularni alohida yozadi; oraliq holat ekranda bo'lmaydi
+    if (ci + 1 < T.cls.length && T.cls[ci + 1][0] - t <= 4) continue;
     const s = stateOf();
     if (s !== state) { trans.push({ t, from: state, to: s, type: `${state} → ${s}` }); state = s; }
     const sl = on(cur.a) ? "a" : on(cur.b) ? "b" : null;
     if (sl && lastSl && sl !== lastSl && state === "speaking") trans.push({ t, from: "speaking", to: "speaking", type: "speaking → speaking (variant)" });
     if (sl) lastSl = sl;
   }
-  const classesAt = (t) => { let c = { idle: "", a: "", b: "", greeting: "" }; for (const [tt, cc] of timeline) { if (tt <= t + 50) c = cc; else break; } return c; };
+  const classesAt = (t) => { let c = { idle: "", a: "", b: "", greeting: "", answer: "" }; for (const [tt, cc] of timeline) { if (tt <= t + 50) c = cc; else break; } return c; };
   const visible = (n, t) => { const c = classesAt(t)[n]; return n === "greeting" ? /\bon\b/.test(c) || false : true; /* yuz klipi ichida doim ko'rinadi (on/prev yoki 1% tagida) */ };
   const onLayer = (t) => { let s = "idle"; for (const x of trans) { if (x.t <= t) s = x.to; else break; } return s; };
   // loop choki — faqat ekrandagi klip boshiga qaytganda; o'tishdan 600 ms oldin va 1.2 s keyin emas (o'lchash oynasi +450 ms, boshqa o'tish farqi aralashmasin)
@@ -177,7 +196,7 @@ try {
 
   // ko'rinib turgan kadrlar: ekrandagi yuz klipi + (bo'lsa) salom — ketma-ket eng uzun oraliq
   const visFrames = [];
-  for (const n of ["idle", "a", "b", "greeting"]) for (const f of T.frames[n]) if (n === "greeting" ? classesAt(f[0]).greeting.includes("on") : true) visFrames.push(f[0]);
+  for (const n of ["idle", "a", "b", "greeting", "answer"]) for (const f of T.frames[n]) if (n === "greeting" || n === "answer" ? classesAt(f[0])[n].includes("on") : true) visFrames.push(f[0]);
   visFrames.sort((a, b) => a - b);
 
   const f1_ = (x) => x.toFixed(1);
@@ -233,6 +252,13 @@ try {
   }
 
 
+  if (REAL) {
+    const ex = DBG.filter((e) => e.ev === "exit"), fb = DBG.filter((e) => e.ev === "exit-fallback");
+    const errs = DBG.filter((e) => e.ev === "ws-error");
+    const rel = (t) => ((t - clicks[0]) / 1000).toFixed(1);
+    console.log("ketma-ketlik: " + [...allEvents.filter((e) => !e.type.includes("loop")).map((e) => [e.t, e.type]), ...DBG.filter((e) => ["exit", "exit-fallback", "pausehold"].includes(e.ev)).map((e) => [ORIGIN + e.at, "[" + e.ev + (e.sw ? "+almashdi" : "") + "]"])].sort((x, y) => x[0] - y[0]).map(([t, n]) => rel(t) + " " + n).join("; "));
+    console.log(`haqiqiy suhbat: tayyor javob klipi ${allEvents.filter((e) => e.type === "idle → answer").length} ta, erkin javob ${allEvents.filter((e) => e.type === "idle → speaking").length} ta | gap oxiri: ovozga to'g'rilangan ${ex.length}, kutib chiqilgan ${fb.length}${fb.length ? ` (eng uzun kutish ${Math.round(Math.max(...fb.map((e) => e.waited)))} ms, yopiq kadrda ${fb.filter((e) => e.hold).length})` : ""} | pauzada to'xtash ${DBG.filter((e) => e.ev === "pausehold").length} (shundan variant almashdi ${DBG.filter((e) => e.ev === "pausehold" && e.sw).length})${errs.length ? ` | XATO: ${errs.length}` : ""}`);
+  }
   console.log(`\nJAMI: ${Object.keys(rows).length} tur, ${allEvents.length} o'tish, o'tmagan tur/tekshiruv: ${bad}`);
   process.exitCode = bad ? 1 : 0;
 } finally {
