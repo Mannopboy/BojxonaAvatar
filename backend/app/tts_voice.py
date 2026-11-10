@@ -10,7 +10,9 @@ Nega Live emas: Live modelida o'zbekcha talaffuz xatolari bor; gemini-3.8-flash-
 import asyncio
 import io
 import json
+import logging
 import re
+import time
 import wave
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -20,6 +22,7 @@ from google.genai import types
 from .config import get_settings
 
 settings = get_settings()
+log = logging.getLogger("uvicorn.error")
 
 SAMPLE_RATE_IN = 16000
 MIN_UTTERANCE_S = 0.5      # bundan qisqa ovoz — shovqin, javob berilmaydi
@@ -52,6 +55,26 @@ FALLBACK_TEXT = "Kechirasiz, savolingizni aniq eshitmadim. Iltimos, yana bir bor
 ERROR_TEXT = "Kechirasiz, hozir javob bera olmadim. Iltimos, savolingizni qayta takrorlang."
 
 _client: genai.Client | None = None
+_block_until = 0.0  # TTS kunlik kvotasi tugagan bo'lsa — shu vaqtgacha (time.time()) yangi suhbatlar Gemini Live bilan ishlaydi
+
+
+def tts_available() -> bool:
+    """TTS kvotasi tugamagan bo'lsa True. Kunlik chegara (gemini-3.8-flash-tts: Tier 1 da kuniga 100 so'rov, loyiha bo'yicha) tugasa — False: live.py yangi suhbatni Gemini Live ga o'tkazadi."""
+    return time.time() >= _block_until
+
+
+def _note_quota(msg: str) -> bool:
+    """429 kunlik kvota xatosi bo'lsa — TTS ni retryDelay (yoki 1 soat) gacha o'chiradi. Qaytaradi: kunlik kvota tugadimi."""
+    global _block_until
+    if "429" not in msg and "RESOURCE_EXHAUSTED" not in msg:
+        return False
+    if "per_day" not in msg.lower() and "perday" not in msg.lower():
+        return False
+    m = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+)s", msg)
+    secs = min(int(m.group(1)), 24 * 3600) if m else 3600
+    _block_until = time.time() + secs
+    log.warning("TTS kunlik kvotasi tugadi: %d s gacha yangi suhbatlar Gemini Live bilan ishlaydi", secs)
+    return True
 _cache: dict[str, bytes] = {}
 _cache_lock = asyncio.Lock()
 _bg: set = set()  # fon vazifalariga havola (axlat yig'uvchi o'chirib yubormasin)
@@ -135,6 +158,9 @@ async def synth_stream(text: str):
             if got:
                 return
         except Exception as e:  # noqa: BLE001
+            log.warning("TTS xato (urinish %d): %s: %s", attempt, type(e).__name__, str(e)[:200])
+            if _note_quota(str(e)):
+                return  # kunlik kvota: qayta urinish befoyda
             if got:  # yarmida uzildi — qaytadan boshlasak takrorlanadi
                 return
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
@@ -208,14 +234,17 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
             if piece:
                 await ws.send_bytes(bytes(piece[: len(piece) // 2 * 2]))
                 spoke = True
-        if not spoke:
+        if not spoke and not tts_available():
+            await ws.send_text(json.dumps({"type": "error", "msg": "Ovoz xizmati vaqtincha band. Suhbatni qaytadan boshlang."}))
+        elif not spoke:
             await _say_cached(ws, FALLBACK_TEXT)
         else:
             history.append(types.Content(role="user", parts=[user_part]))
             history.append(types.Content(role="model", parts=[types.Part(text=text)]))
     except WebSocketDisconnect:
         raise
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        log.warning("javob xatosi: %s: %s", type(e).__name__, str(e)[:200])
         if not spoke:
             try:
                 await _say_cached(ws, ERROR_TEXT)

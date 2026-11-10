@@ -13,8 +13,10 @@ export interface TurnInfo {
   remaining: number;
   /** oxirgi ESHITILADIGAN tovush tugashiga shuncha soniya qoldi (oxiridagi jimliksiz; chiqish qurilmasi kechikishi hisobga olingan) */
   audibleRemaining: number;
+  /** kelgusi ovoz pauzalari (>= 0.2 s jim, ichida/oldinda): in — pauza boshlanishiga soniya (<= 0: pauza davom etyapti), len — pauza uzunligi */
+  pausesAhead: { in: number; len: number }[];
 }
-export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0 });
+export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0, pausesAhead: [] });
 
 export interface LiveHandle {
   stop: () => void;
@@ -57,6 +59,9 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let greeted = false; // birinchi audio keldimi (salom)
   let turnDone = false; // turn_complete keldi (ijro hali davom etayotgan bo'lishi mumkin)
   let lastAudioAt = 0;
+  const pauses: { start: number; end: number }[] = []; // AudioContext vaqtida ovoz pauzalari (javob davomida jimlik >= 0.2 s)
+  let silStart: number | null = null;
+  let seenSound = false;
   let audibleEnd = 0; // AudioContext vaqtida: oxirgi eshitiladigan tovush tugaydigan payt (jimlik hisobga olinmaydi)
 
   function enqueue(int16: Int16Array) {
@@ -80,6 +85,19 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         break;
       }
     }
+    // pauzalar: 10 ms bloklar, RMS < 0.006 — jim. Javob boshidagi jimlik pauza emas (ovoz eshitilgandan keyingi jimlik >= 0.2 s)
+    for (let b = 0; b < Math.floor(f32.length / 240); b++) {
+      let sq = 0;
+      for (let i = b * 240; i < (b + 1) * 240; i++) sq += f32[i] * f32[i];
+      const bt = nextTime + (b * 240) / 24000 / PLAY_RATE;
+      if (Math.sqrt(sq / 240) < 0.006) {
+        if (silStart === null) silStart = bt;
+      } else {
+        if (silStart !== null && seenSound && bt - silStart >= 0.2) pauses.push({ start: silStart, end: bt });
+        silStart = null;
+        seenSound = true;
+      }
+    }
     nextTime += buf.duration / PLAY_RATE;
     node.onended = () => {
       sources = sources.filter((s) => s !== node);
@@ -98,6 +116,9 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     sources = [];
     nextTime = 0;
     audibleEnd = 0;
+    pauses.length = 0;
+    silStart = null;
+    seenSound = false;
   }
 
   // --- Mikrofon (PCM16, 16kHz ga downsample) ---
@@ -183,6 +204,11 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         onGreetAudio?.();
         (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
       }
+      if (turnRef && !turnRef.current.active) {
+        pauses.length = 0; // yangi javob: pauza kuzatuvi boshidan
+        silStart = null;
+        seenSound = false;
+      }
       turnDone = false;
       lastAudioAt = performance.now() / 1000;
       if (turnRef) {
@@ -229,12 +255,16 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
       turnRef.current.remaining = Math.max(0, nextTime - playCtx.currentTime);
       const outLat = Math.min(0.25, playCtx.outputLatency || playCtx.baseLatency || 0); // eshitilgan payt = rejalangan payt + qurilma kechikishi
       turnRef.current.audibleRemaining = Math.max(0, audibleEnd + outLat - playCtx.currentTime);
+      const ct = playCtx.currentTime;
+      while (pauses.length && pauses[0].end + outLat < ct - 1) pauses.shift();
+      turnRef.current.pausesAhead = pauses.filter((p) => p.end + outLat > ct).slice(0, 6).map((p) => ({ in: p.start + outLat - ct, len: p.end - p.start }));
       const drained = sources.length === 0 && nextTime <= playCtx.currentTime; // hamma kelgan audio chalib bo'lindi
       // javob tugadi (turn_complete + hamma audio chalindi) yoki audio kelmay qoldi va chalinadigani ham yo'q (xavfsizlik) — og'iz endi ovoz bo'yicha boshqariladi
       if (drained && (turnDone || t - lastAudioAt > 6)) {
         turnRef.current.active = false;
         turnRef.current.remaining = 0;
         turnRef.current.audibleRemaining = 0;
+        turnRef.current.pausesAhead = [];
       }
     }
     onState(avatarSpeaking || level > 0.02 ? "speaking" : "listening");

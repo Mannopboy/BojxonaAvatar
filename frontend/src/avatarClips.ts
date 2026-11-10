@@ -84,6 +84,11 @@ export function pickLinked(a: number, count: number, rnd: () => number = Math.ra
   return pickVariant(count, a, rnd);
 }
 
+/** A variantining `iA`-kadri (soniya) bilan B varianti orasidagi barcha kadr-mos o'tish nuqtalari (har A ushlab turish kadri uchun eng yaxshi B kadrlari). */
+export function transitionsFor(a: number, b: number): readonly Transition[] {
+  return (GRAPH[`${a}-${b}`] ?? []).map(([i, u, c]) => ({ t: i / FPS, u: u / FPS, cost: c }));
+}
+
 export interface ExitPlan {
   /** o'ynash tezligi (1 = asl) */
   rate: number;
