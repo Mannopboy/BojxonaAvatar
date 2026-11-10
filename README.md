@@ -67,6 +67,9 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   **Ovoz barqarorligi:** har javob BITTA TTS chaqiruvida ovozlanadi (`temperature=0.2`, `seed=7`: `GEMINI_TTS_TEMPERATURE`, `GEMINI_TTS_SEED`). Standart haroratda (1.0) bir xil matn har
   chaqiruvda turlicha o'qildi (o'lchangan: davomiylik ±0.65 s / 7 s, balandlik ±30%) — suhbat o'rtasida ovoz «qalinlashib/o'zgarib» qolgandek eshitilardi; endi davomiylik ±0.05 s,
   balandlik ±5%. Kvota (429) bo'lsa 1.5 s kutib 3 martagacha qayta uriniladi.
+  ⚠️ **Kunlik kvota:** `gemini-3.8-flash-tts` Tier 1 da loyiha bo'yicha KUNIGA 100 so'rov (`generate_requests_per_model_per_day`); har javob 1 so'rov, salom keshlanadi (serverga 1 so'rov).
+  Kvota tugasa (`429 … per_day`) `tts_voice.tts_available()` retryDelay gacha False bo'ladi va `live.py` YANGI suhbatlarni avtomatik Gemini Live ovoziga o'tkazadi (jarayondagi suhbat xato
+  xabari oladi, qayta boshlansa Live ishlaydi). Ko'proq suhbat uchun to'lov rejasini yuqori tierga o'tkazish yoki boshqa TTS kerak.
   ⚠️ TTS ga «… o'qi: matn» kabi ko'rsatma **qo'shilmaydi**: model uni ovoz chiqarib o'qiydi (o'lchangan: 6.6 s o'rniga 15 s). Javob matni sonlarni so'z bilan
   yozadi (tizim ko'rsatmasi), belgilar ovozlashdan oldin tozalanadi. Salom (`GREETING_TEXT`) server ishga tushganda bir marta ovozlab saqlanadi — darhol chiqadi.
   Kechikish (o'lchangan): savol tugagach birinchi audio ~3.8 s (LLM ~2 s + TTS birinchi bo'lak ~0.9 s) + brauzerning jim-kutishi 1.3 s.
@@ -89,6 +92,10 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   tishlari ko'ringan ochiq og'iz ham «yopiq» hisoblanardi (kadrlarga qarab o'lchangan: yopiq lablar 7.8–9.3, tish ko'ringanda 11.2+); shu sabab og'iz ochiq turib to'xtab qolardi.
   Klip qabul qilinishi: ushlab turish kadrlari ≥ 4 va eng uzun oraliq ≲ 2 s (aks holda ovoz tugashiga to'g'rilab bo'lmaydi — speak_03 shu sabab chiqarildi); kadr uy kadriga mos (aks holda — speak_07,
   AI kadrni yaqinlashtirib yuborgan: `align.fit` xato beradi).
+- **Og'iz faqat ovozdagi haqiqiy PAUZALARDA yopiladi** (gap oqib turganda yopilmaydi): `liveAudio` kelgan audioda jimlik (>= 0.2 s, RMS < 0.006) ni oldindan topadi (`TurnInfo.pausesAhead`).
+  Pleyer keyingi pauzaga ≤ 4 s qolganda klipning ushlab turish kadrini pauza boshiga to'g'rilaydi (tezlik 0.7–1.4), pauzada klip to'xtab turadi (og'iz yopiq), pauza tugagach davom etadi.
+  Keyingi variantga ham aynan pauzada o'tiladi (juftlik bo'yicha kadr-mos nuqta, bo'lmasa B ning tasodifiy yopiq kadriga). Ixtiyoriy joyda yopiq oynada almashish O'CHIRILGAN
+  (`GRAPH_SWITCH_ANYWHERE`): uzun javobda har ~6 s da og'iz ~0.3 s yopilib qolardi, ovoz esa uzluksiz davom etardi. Pauza bo'lmasa — klip oxirgi yopiq oynasida keyingisiga o'tadi.
 - **Variantdan variantga FAQAT og'iz YOPIQ paytda va xira-o'tishsiz (bir kadrda) almashadi.** Og'iz ochiq paytda almashsa yoki xira-o'tish bo'lsa lablar «bijirlab» bilinadi (foydalanuvchi
   shikoyati); yopiq paytda ikki yuz deyarli bir xil, shuning uchun bir kadrli almashish ko'rinmaydi. `build_assets.py` (`build_graph`) har (A, B) juftligi uchun A ning yopiq-og'iz oralig'i
   markazi → B ning yopiq-og'iz oralig'i markazi (B da kamida 1.2 s qolsin) juftliklarini yuz hududi farqi bo'yicha saralaydi (`avatarClips.json` `graph.pairs["A-B"] = [[A kadri, B kadri, narx], …]`,

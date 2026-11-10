@@ -77,8 +77,9 @@ async def ws_live(ws: WebSocket):
         await ws.close()
         return
 
-    if settings.voice_engine == "tts":  # Gemini matn modeli + Gemini TTS (gemini-3.8-flash-tts) — tts_voice.py
-        from .tts_voice import handle
+    from .tts_voice import handle, tts_available
+
+    if settings.voice_engine == "tts" and tts_available():  # Gemini matn modeli + Gemini TTS (gemini-3.8-flash-tts) — tts_voice.py; kvota tugagan bo'lsa Gemini Live'ga o'tadi
 
         try:
             await handle(ws)
