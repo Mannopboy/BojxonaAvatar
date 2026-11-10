@@ -3,6 +3,19 @@
 
 export type LiveState = "connecting" | "listening" | "speaking" | "error" | "stopped";
 
+/** Javob (turn) holati: avatar videosi ovoz tugashini OLDINDAN biladi (TTS audiosi tez keladi, hamma audio chalinadiganlar navbatda). */
+export interface TurnInfo {
+  /** audio kelgan paytdan to turn_complete va hamma audio chalinguncha */
+  active: boolean;
+  /** turn_complete keldi: bu javobda boshqa audio kelmaydi */
+  done: boolean;
+  /** navbatdagi audio yana shuncha soniya chalinadi (oxiridagi jimlik bilan) */
+  remaining: number;
+  /** oxirgi ESHITILADIGAN tovush tugashiga shuncha soniya qoldi (oxiridagi jimliksiz; chiqish qurilmasi kechikishi hisobga olingan) */
+  audibleRemaining: number;
+}
+export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0 });
+
 export interface LiveHandle {
   stop: () => void;
 }
@@ -11,6 +24,12 @@ export interface LiveOpts {
   onState: (s: LiveState) => void;
   onLevel: (level: number) => void; // 0..1 — avatar og'zi uchun
   onError: (msg: string) => void;
+  /** birinchi (salom) audio kelganda — salom videosi shu paytda boshlanadi; audio esa greetDelayS dan keyin chalinadi */
+  onGreetAudio?: () => void;
+  /** salom audiosi qancha kechiktiriladi (soniya): salom videosida qo'l boshga yetib borguncha ovoz bo'lmasin */
+  greetDelayS?: number;
+  /** javob davomida true: audio kelgan paytdan to turn_complete va ijro tugaguncha — jumlalar orasidagi pauzada og'iz yopilib-ochilmasin */
+  turnRef?: { current: TurnInfo };
 }
 
 const PLAY_RATE = 1; // ijro tezligi (1 = asl)
@@ -21,7 +40,7 @@ function wsUrl(): string {
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -35,6 +54,10 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let busy = true; // javob (yoki boshlang'ich salom) tugamaguncha mikrofon VAD yopiq — ikki ovoz aralashmasin
   let busyUntil = performance.now() / 1000 + 15; // xavfsizlik: turn_complete kelmasa ham 15s dan keyin ochiladi
   let avatarSpeaking = false; // avatar gapirayotganda mikrofon VAD o'chiriladi (echo oldini olish)
+  let greeted = false; // birinchi audio keldimi (salom)
+  let turnDone = false; // turn_complete keldi (ijro hali davom etayotgan bo'lishi mumkin)
+  let lastAudioAt = 0;
+  let audibleEnd = 0; // AudioContext vaqtida: oxirgi eshitiladigan tovush tugaydigan payt (jimlik hisobga olinmaydi)
 
   function enqueue(int16: Int16Array) {
     const f32 = new Float32Array(int16.length);
@@ -48,6 +71,15 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     // jitter buffer: javob boshida (yoki uzilishdan keyin) biroz oldindan to'plab, so'ng uzluksiz ijro
     if (nextTime < now) nextTime = now + 0.25;
     node.start(nextTime);
+    // chunk ichidagi oxirgi eshitiladigan blok (10 ms, RMS >= 0.012): og'iz shu paytga yopilishi kerak (TTS audiosi oxirida ~0.2-0.3 s jimlik bor)
+    for (let b = Math.floor(f32.length / 240) - 1; b >= 0; b--) {
+      let sq = 0;
+      for (let i = b * 240; i < (b + 1) * 240; i++) sq += f32[i] * f32[i];
+      if (Math.sqrt(sq / 240) >= 0.012) {
+        audibleEnd = Math.max(audibleEnd, nextTime + ((b + 1) * 240) / 24000 / PLAY_RATE);
+        break;
+      }
+    }
     nextTime += buf.duration / PLAY_RATE;
     node.onended = () => {
       sources = sources.filter((s) => s !== node);
@@ -65,6 +97,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     }
     sources = [];
     nextTime = 0;
+    audibleEnd = 0;
   }
 
   // --- Mikrofon (PCM16, 16kHz ga downsample) ---
@@ -144,6 +177,18 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) {
+      if (!greeted) {
+        greeted = true;
+        nextTime = playCtx.currentTime + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
+        onGreetAudio?.();
+        (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
+      }
+      turnDone = false;
+      lastAudioAt = performance.now() / 1000;
+      if (turnRef) {
+        turnRef.current.active = true;
+        turnRef.current.done = false;
+      }
       enqueue(new Int16Array(ev.data));
     } else {
       try {
@@ -151,6 +196,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         if (m.type === "ready") onState("listening");
         else if (m.type === "interrupted") flush();
         else if (m.type === "turn_complete") {
+          turnDone = true;
+          if (turnRef) turnRef.current.done = true;
           // audio ijrosi tugagach + qisqa pauza (ovoz aks-sadosi mikrofonga tushmasin) mikrofon ochiladi
           const wait = Math.max(0, nextTime - playCtx.currentTime) + 0.8;
           busyUntil = performance.now() / 1000 + wait;
@@ -177,6 +224,19 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const level = Math.min(1, rms * 3.2); // kuchaytirish
     onLevel(level);
     avatarSpeaking = sources.length > 0;
+    if (turnRef?.current.active) {
+      const t = performance.now() / 1000;
+      turnRef.current.remaining = Math.max(0, nextTime - playCtx.currentTime);
+      const outLat = Math.min(0.25, playCtx.outputLatency || playCtx.baseLatency || 0); // eshitilgan payt = rejalangan payt + qurilma kechikishi
+      turnRef.current.audibleRemaining = Math.max(0, audibleEnd + outLat - playCtx.currentTime);
+      const drained = sources.length === 0 && nextTime <= playCtx.currentTime; // hamma kelgan audio chalib bo'lindi
+      // javob tugadi (turn_complete + hamma audio chalindi) yoki audio kelmay qoldi va chalinadigani ham yo'q (xavfsizlik) — og'iz endi ovoz bo'yicha boshqariladi
+      if (drained && (turnDone || t - lastAudioAt > 6)) {
+        turnRef.current.active = false;
+        turnRef.current.remaining = 0;
+        turnRef.current.audibleRemaining = 0;
+      }
+    }
     onState(avatarSpeaking || level > 0.02 ? "speaking" : "listening");
     raf = requestAnimationFrame(loop);
   }
@@ -202,6 +262,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     micCtx.close().catch(() => {});
     playCtx.close().catch(() => {});
     onLevel(0);
+    if (turnRef) turnRef.current = newTurnInfo();
     onState("stopped");
   };
 

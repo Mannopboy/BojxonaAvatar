@@ -5,6 +5,7 @@ Ishga tushirish:
     python -m app.seed          # 3 FAQ seed
     uvicorn app.main:app --reload
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,6 +15,7 @@ from .api import router
 from .config import get_settings
 from .db import Base, engine
 from .live import router as live_router
+from .tts_voice import warm_up
 from .seed import seed
 
 settings = get_settings()
@@ -23,7 +25,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     seed()  # 3 asosiy savolni kafolatlaymiz
+    warm = asyncio.create_task(warm_up())  # salom ovozi oldindan tayyorlanadi
     yield
+    warm.cancel()
 
 
 app = FastAPI(

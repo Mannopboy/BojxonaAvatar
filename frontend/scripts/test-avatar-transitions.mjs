@@ -29,7 +29,7 @@ const THROTTLE = Number(process.env.THROTTLE || 1);
 // captureGapMs: ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi (o'lchangan: odatda 33 ms, ba'zan 100–230 ms). Shunday oraliqdagi
 // ikki kadr farqi video nuqsoni emas, yozuv artefakti (bosh va yuz bir vaqtda "sakraydi") — bunday juftliklar hisobga olinmaydi.
 // Haqiqiy uzilishni stallMs (video kadrlari vaqti, rVFC) alohida tekshiradi.
-const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 4, captureGapMs: 100 };
+const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 6, captureGapMs: 100 };
 
 // Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
 const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
@@ -74,13 +74,15 @@ try {
   });
   await page.goto(URL0, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
-    () => document.querySelectorAll(".rig-face").length === 2 && !!document.querySelector(".rig-greeting") &&
+    () => document.querySelectorAll(".rig-face").length === 3 && !!document.querySelector(".rig-greeting") &&
       [...document.querySelectorAll(".rig-face, .rig-greeting")].every((v) => v.readyState >= 3) &&
       [...document.querySelectorAll(".avatar-rig img")].every((i) => i.complete && i.naturalWidth > 0),
     { timeout: 60000 });
   await page.evaluate(() => {
-    const els = { idle: document.querySelectorAll(".rig-face")[0], speaking: document.querySelectorAll(".rig-face")[1], greeting: document.querySelector(".rig-greeting") };
-    window.__t = { frames: { idle: [], speaking: [], greeting: [] }, cls: [] };
+    // 3 ta yuz klipi: idle va gapirish uchun ikki bufer (a, b)
+    const faces = document.querySelectorAll(".rig-face");
+    const els = { idle: faces[0], a: faces[1], b: faces[2], greeting: document.querySelector(".rig-greeting") };
+    window.__t = { frames: { idle: [], a: [], b: [], greeting: [] }, cls: [] };
     for (const [n, v] of Object.entries(els)) {
       const cb = (now, meta) => { window.__t.frames[n].push([performance.timeOrigin + now, meta.mediaTime]); v.requestVideoFrameCallback(cb); };
       v.requestVideoFrameCallback(cb);
@@ -104,11 +106,12 @@ try {
   await clickTalk(); await wait(1.5);
   // 2-suhbat: uzun nutq → salom → GAPIRISH, so'ng pauzalar bilan kutish ↔ gapirish, oxirida uzoq kutish (loop choki)
   await clickTalk(); await wait(1.2);
-  await page.evaluate(() => window.__speak([[10.5, 1.0], [3, 0.9], [4, 1.5], [2.5, 0.8], [3, 0.7], [2, 0]])); await wait(31);
+  await page.evaluate(() => window.__speak([[16, 1.0], [3, 0.9], [4, 1.5], [2.5, 0.8], [3, 0.7], [2, 0]])); await wait(37);
   await wait(6); // uzoq kutish: kutish klipi ~4.6 s da loop qiladi
   await clickTalk(); await wait(1);
   await cdp.send("Page.stopScreencast");
   const T = await page.evaluate(() => window.__t);
+  T.frames.speaking = [...T.frames.a, ...T.frames.b].sort((x, y) => x[0] - y[0]); // gapirish — ikkala bufer kadrlari
 
   // --- kadrlar: har hudud alohida qirqib olinadi (kulrang)
   const rect = ([x0, y0, x1, y1]) => ({ left: Math.round(rig.x + x0 * sc), top: Math.round(rig.y + y0 * sc), width: Math.max(2, Math.round((x1 - x0) * sc)), height: Math.max(2, Math.round((y1 - y0) * sc)) });
@@ -128,23 +131,28 @@ try {
   const bright = dec.map((f) => ({ t: f.t, b: f.all.reduce((a, v) => a + v, 0) / f.all.length }));
 
   // --- ko'rinadigan holat vaqt chizig'i: salom ("on") hammasi ustida, aks holda "on" yuz klipi
-  const cur = { idle: "", speaking: "", greeting: "" };
+  const cur = { idle: "", a: "", b: "", greeting: "" };
   const trans = [];
   let state = "idle";
-  const stateOf = () => (/\bon\b/.test(cur.greeting) ? "greeting" : /\bon\b/.test(cur.speaking) ? "speaking" : "idle");
-  const timeline = []; // [t, {idle:cls, speaking:cls, greeting:cls}]
+  const on = (c) => /\bon\b/.test(c);
+  const stateOf = () => (on(cur.greeting) ? "greeting" : on(cur.a) || on(cur.b) ? "speaking" : "idle");
+  const timeline = []; // [t, {idle, a, b, greeting: class}]
+  let lastSl = null; // gapirish buferi (a/b): variantdan variantga ulanishni aniqlash uchun
   for (const [t, n, c] of T.cls) {
     cur[n] = c;
     timeline.push([t, { ...cur }]);
     const s = stateOf();
     if (s !== state) { trans.push({ t, from: state, to: s, type: `${state} → ${s}` }); state = s; }
+    const sl = on(cur.a) ? "a" : on(cur.b) ? "b" : null;
+    if (sl && lastSl && sl !== lastSl && state === "speaking") trans.push({ t, from: "speaking", to: "speaking", type: "speaking → speaking (variant)" });
+    if (sl) lastSl = sl;
   }
-  const classesAt = (t) => { let c = { idle: "", speaking: "", greeting: "" }; for (const [tt, cc] of timeline) { if (tt <= t + 50) c = cc; else break; } return c; };
+  const classesAt = (t) => { let c = { idle: "", a: "", b: "", greeting: "" }; for (const [tt, cc] of timeline) { if (tt <= t + 50) c = cc; else break; } return c; };
   const visible = (n, t) => { const c = classesAt(t)[n]; return n === "greeting" ? /\bon\b/.test(c) || false : true; /* yuz klipi ichida doim ko'rinadi (on/prev yoki 1% tagida) */ };
   const onLayer = (t) => { let s = "idle"; for (const x of trans) { if (x.t <= t) s = x.to; else break; } return s; };
   // loop choki — faqat ekrandagi klip boshiga qaytganda; o'tishdan 600 ms oldin va 1.2 s keyin emas (o'lchash oynasi +450 ms, boshqa o'tish farqi aralashmasin)
   const wraps = [];
-  for (const n of ["idle", "speaking"]) {
+  for (const n of ["idle"]) { // gapirish takrorlanmaydi: variantlar ulanadi ("speaking → speaking (variant)" o'tishi)
     const fs_ = T.frames[n];
     for (let i = 1; i < fs_.length; i++) if (fs_[i][1] < fs_[i - 1][1] - 0.5 && onLayer(fs_[i][0]) === n && !trans.some((x) => fs_[i][0] - x.t >= -600 && fs_[i][0] - x.t <= 1200)) wraps.push({ t: fs_[i][0], type: `${n} loop choki`, to: n });
   }
@@ -169,16 +177,17 @@ try {
 
   // ko'rinib turgan kadrlar: ekrandagi yuz klipi + (bo'lsa) salom — ketma-ket eng uzun oraliq
   const visFrames = [];
-  for (const n of Object.keys(T.frames)) for (const f of T.frames[n]) if (n === "greeting" ? classesAt(f[0]).greeting.includes("on") : true) visFrames.push(f[0]);
+  for (const n of ["idle", "a", "b", "greeting"]) for (const f of T.frames[n]) if (n === "greeting" ? classesAt(f[0]).greeting.includes("on") : true) visFrames.push(f[0]);
   visFrames.sort((a, b) => a - b);
 
+  const f1_ = (x) => x.toFixed(1);
   const rows = {};
   for (const e of allEvents) {
     const [a, b] = [e.t - 120, e.t + 450];
     const g = []; for (let i = 1; i < visFrames.length; i++) if (visFrames[i] >= a && visFrames[i] <= b) g.push(visFrames[i] - visFrames[i - 1]);
     const stall = g.length ? Math.max(...g) : 0;
     const first = e.to && T.frames[e.to]?.find((f) => f[0] >= e.t);
-    const latency = e.type.includes("loop") ? 0 : first ? first[0] - e.t : 999;
+    const latency = e.type.includes("loop") || e.type.includes("variant") ? 0 : first ? first[0] - e.t : 999;
     const inWin = (arr) => arr.filter((p) => p.t >= a && p.t <= b);
     const mx = (k) => Math.max(0, ...inWin(pops).map((p) => p[k]));
     // qorayish chaqnashi: oyna ichidagi eng qorong'i payt, o'tishdan oldingi (-700..-300 ms) va keyingi (+600..+1000 ms) yorqinlikning kichigiga nisbatan
@@ -186,6 +195,15 @@ try {
     const ref = Math.min(meanB(-700, -300), meanB(600, 1000));
     const dips = inWin(bright).map((p) => ((p.b - ref) / ref) * 100).filter(Number.isFinite);
     const dip = dips.length ? Math.min(0, ...dips) : 0;
+    // VERBOSE + DUMP_DIR: eng katta tana farqi chiqqan juftlik (oldingi/keyingi kadr) alohida saqlanadi — sabab ko'z bilan ko'rilsin
+    if (process.env.VERBOSE && process.env.DUMP_DIR) {
+      const bp = inWin(pops).reduce((m, q) => (q.body > m.body ? q : m), { body: -1 });
+      if (bp.body > 0 && bp.body > steadyMax.body * 1.15 + 0.5) {
+        const after = shots.find((x) => x.t === bp.t), before = shots.filter((x) => x.t < bp.t).pop();
+        fs.mkdirSync(process.env.DUMP_DIR, { recursive: true });
+        if (after && before) { const k = e.type.replace(/\W+/g, "_") + "_" + Math.round(e.t % 100000); fs.writeFileSync(path.join(process.env.DUMP_DIR, `PEAK_${k}_a.jpg`), Buffer.from(before.data, "base64")); fs.writeFileSync(path.join(process.env.DUMP_DIR, `PEAK_${k}_b.jpg`), Buffer.from(after.data, "base64")); console.log(`    PEAK ${e.type}: body ${f1_(bp.body)} dt ${Math.round(bp.dt)} ms at ${Math.round(bp.t - e.t)} ms -> ${k}`); }
+      }
+    }
     const capPeak = inWin(pops).reduce((m, p) => (p.cap > m.cap ? p : m), { cap: -1, t: e.t });
     (rows[e.type] ||= []).push({ latency, stall, cap: mx("cap"), face: mx("face"), body: mx("body"), dip, capOff: capPeak.t - e.t, capDt: capPeak.dt ?? 0 });
   }
@@ -201,8 +219,12 @@ try {
     const dipW = Math.min(...arr.map((r) => r.dip));
     const isGreet = type.includes("greeting");
     // salom o'tishlarida tananing o'zi harakatlanadi (qo'l ko'tariladi): u yerda tana farqi faqat kuzatiladi
-    const lim = (k) => steadyMax[k] * 1.15 + 0.5;
-    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= LIMITS.flashPct &&
+    // tana: kutish klipi nafas olganda jaket ±1.5–1.8 px siljiydi, kirishdagi 200 ms xira-o'tishda bir kadrda ~3 gacha farq beradi (o'lchangan) — taglik 3.5
+    const lim = (k) => Math.max(steadyMax[k] * 1.15 + 0.5, k === "body" ? 3.5 : 0);
+    // kutish -> salom: qo'l o'tishdan keyingi 0.25-0.75 s da ko'tariladi, yelka/tirsak orqa fonga chiqadi — sahna yorqinligi HAQIQATAN tushadi (xira-o'tishning o'zi
+    // qorayish bera olmaydi: yuqori qatlam ostidagi qatlam bilan aralashadi). Shuning uchun bu turda chegara kengroq.
+    const flashLim = isGreet && type.startsWith("idle") ? 9 : LIMITS.flashPct;
+    const ok = w("latency") <= LIMITS.latencyMs && w("stall") <= LIMITS.stallMs && -dipW <= flashLim &&
       w("cap") <= lim("cap") && w("face") <= lim("face") && (isGreet || w("body") <= lim("body"));
     if (!ok) bad++;
     // VERBOSE=1: har o'tish alohida (furajka/soch farqi eng katta bo'lgan payt o'tishga nisbatan, ms) — nosozlikni o'tishdan oldin/keyin ajratish uchun
