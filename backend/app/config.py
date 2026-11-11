@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     # o'rtasida ovoz "qalinlashib/o'zgarib" qolgandek eshitiladi. Past harorat + qat'iy seed shuni bartaraf etadi (davomiylik ±0.05 s).
     gemini_tts_temperature: float = 0.2
     gemini_tts_seed: int = 7
-    greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman. Sizga qanday yordam bera olaman?"
+    # Salom matni app/assets/greeting.txt bilan bir xil bo'lishi kerak: salom videosi (frontend/public/avatar/greeting.mp4) aynan shu audio (assets/greeting.pcm) bilan yaratilgan —
+    # lab harakati ovozga mos. Boshqa matn qo'yilsa TTS ovozlaydi va video bilan mos kelmaydi.
+    greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman."
 
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005

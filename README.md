@@ -92,6 +92,9 @@ almashinuvi seziladi). Salom yaxshi ko'rinadi, chunki uning videosi O'Z audiosi 
   `audio_references` = shu audio, prompt — `tools/avatar-build/GENERATE.md` («javob klipi»), (3) `python build_answers.py idle=… <id>=<video>:<wav>` (moslash, bosh qulflash, yuz moslash, yorqinlik,
   audio qo'shish; lab-ovoz mosligi va siljishi o'lchanadi: `lipMatch` ≥ 0.7, uchlarida lablar yopiq), (4) `out/answers/<id>.mp4` → `frontend/public/avatar/answers/`, `answers.json` ga yozuv.
 - Salom audiosi ham fayldan (`backend/app/assets/greeting.pcm`, matni `greeting.txt` — `GREETING_TEXT` bilan bir xil bo'lsa ishlatiladi): TTS kvotasi tugaganda va qayta ishga tushganda ham bir xil ovoz.
+  **Salom videosi (`greeting.mp4`) aynan shu audio bilan yaratilgan** (lab harakati shu ovozga mos; `greeting.pcm` ≈ 40 ms jimlikdan keyin boshlanadi, nutq ~1.5 s da). Shu sababli salom HAR DOIM tayyor fayldan
+  beriladi — TTS ham, Gemini Live ham (`live.py`: Live'dan salom so'ralmaydi, model qayta salomlashmasligi tizim ko'rsatmasida aytilgan). Salom matnini/ovozini o'zgartirish uchun `greeting.mp4` ham qayta yaratilishi kerak.
+  Frontendda salom audiosi oldindan to'planmaydi (ovoz kelishi bilan darhol boshlanadi) — to'planish faqat keyingi javoblarga tegishli.
 
 ### Pleyer (`src/AvatarVideo.tsx`, `src/avatarClips.ts`, `src/avatarClips.json`)
 - **Og'iz faqat ovoz bor paytda qimirlaydi**: brauzer ijro etilayotgan audio balandligini o'lchaydi (`liveAudio` level): ovoz bor → `speaking`, 0.17 s dan ko'p jim → chiqish.

@@ -159,6 +159,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
 
   /** Kelgan audio: javob boshida LOOKAHEAD_S to'planadi, keyin uzluksiz ijro. */
   function receive(int16: Int16Array) {
+    if (!greeted && !turnPlaying) startTurnPlayback(); // salom: tayyor audio, oldindan to'planmaydi — video va ovoz darhol boshlanadi
     if (turnPlaying) {
       enqueue(int16);
       return;
