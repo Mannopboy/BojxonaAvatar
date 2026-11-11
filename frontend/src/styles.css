@@ -75,6 +75,9 @@ body {
    boshqacha, tana ham bir kadrda almashsa "chaqnaydi". Niqob bosh/yoqa (~27%) gacha shaffof: u yerda eski klip ko'rinmaydi. */
 .rig-face.out.bodyfade { -webkit-mask-image: linear-gradient(to bottom, transparent 0%, transparent 27%, #000 40%); mask-image: linear-gradient(to bottom, transparent 0%, transparent 27%, #000 40%); }
 .rig-greeting { z-index: 3; opacity: 0.01; transition: opacity 400ms linear; }
+/* Tayyor javob klipi (o'z ovozi bilan): salom kabi — kutish ustida paydo bo'ladi, tugagach uy kadridan kutishga xiralashadi */
+.rig-answer { z-index: 4; opacity: 0.01; transition: opacity 400ms linear; }
+.rig-answer.on { opacity: 1; transition: opacity 150ms linear; }
 .rig-greeting.on { opacity: 1; transition: opacity 150ms linear; } /* salom ovoz bilan birga tez paydo bo'ladi */
 .status {
   z-index: 5;

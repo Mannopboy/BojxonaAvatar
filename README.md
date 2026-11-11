@@ -68,8 +68,11 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   chaqiruvda turlicha o'qildi (o'lchangan: davomiylik ±0.65 s / 7 s, balandlik ±30%) — suhbat o'rtasida ovoz «qalinlashib/o'zgarib» qolgandek eshitilardi; endi davomiylik ±0.05 s,
   balandlik ±5%. Kvota (429) bo'lsa 1.5 s kutib 3 martagacha qayta uriniladi.
   ⚠️ **Kunlik kvota:** `gemini-3.8-flash-tts` Tier 1 da loyiha bo'yicha KUNIGA 100 so'rov (`generate_requests_per_model_per_day`); har javob 1 so'rov, salom keshlanadi (serverga 1 so'rov).
-  Kvota tugasa (`429 … per_day`) `tts_voice.tts_available()` retryDelay gacha False bo'ladi va `live.py` YANGI suhbatlarni avtomatik Gemini Live ovoziga o'tkazadi (jarayondagi suhbat xato
-  xabari oladi, qayta boshlansa Live ishlaydi). Ko'proq suhbat uchun to'lov rejasini yuqori tierga o'tkazish yoki boshqa TTS kerak.
+  Kvota tugasa (`429 … per_day`) shu model retryDelay gacha o'chiriladi va zaxira model `GEMINI_TTS_FALLBACK_MODEL` (`gemini-3.8-flash-lite-tts`, alohida kvota) ishlatiladi; ikkalasi ham
+  tugasa matnni **Gemini Live o'qib beradi** (`TTS_LIVE_FALLBACK=true`, `tts_voice._live_read`): tayyor javob kliplari va matn mantig'i ishlashda davom etadi, faqat erkin javob ovozi Live ovozi
+  bo'ladi. Kvota bloki 10 daqiqa (retryDelay ~18 soat deyiladi, amalda oldinroq ochilgan) — keyin qayta tekshiriladi. Tayyor javob kliplari TTS ni umuman chaqirmaydi.
+  **Live ovozida** audio real vaqtda keladi (oldinda atigi ~0.5 s, o'lchangan) — shuning uchun `liveAudio` ijrodan oldin 2 s audio to'playdi (`LOOKAHEAD_S`): ovoz tugashi va pauzalar
+  oldindan ma'lum bo'lsin (aks holda og'iz gap tugagach ham qimirlab turadi). TTS da audio tez keladi, qo'shimcha kechikish ~0.5 s.
   ⚠️ TTS ga «… o'qi: matn» kabi ko'rsatma **qo'shilmaydi**: model uni ovoz chiqarib o'qiydi (o'lchangan: 6.6 s o'rniga 15 s). Javob matni sonlarni so'z bilan
   yozadi (tizim ko'rsatmasi), belgilar ovozlashdan oldin tozalanadi. Salom (`GREETING_TEXT`) server ishga tushganda bir marta ovozlab saqlanadi — darhol chiqadi.
   Kechikish (o'lchangan): savol tugagach birinchi audio ~3.8 s (LLM ~2 s + TTS birinchi bo'lak ~0.9 s) + brauzerning jim-kutishi 1.3 s.
@@ -77,6 +80,21 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   o'chirilishi mumkin — `GEMINI_CHAT_MODEL` bilan almashtiring.
 - **`live`**: Gemini Live (`GEMINI_LIVE_MODEL`=`gemini-3.8-live-extended-thinking`, `GEMINI_LIVE_THINKING`). ⚠️ gemini-3.x qo'lda activity ni qabul qilmaydi — avtomatik VAD +
   `audio_stream_end`; gemini-2.5-* da qo'lda activity avtomatik yoqiladi.
+
+### Tayyor javob kliplari (lab harakati ovozga AYNAN mos)
+Umumiy gapirish variantlari jonli ovozga hece-hece mos EMAS: og'iz ovozdan mustaqil harakatlanadi, katta ekranda bu ko'rinadi (og'iz gap o'rtasida yopiladi, gap tugagach qimirlaydi, klip
+almashinuvi seziladi). Salom yaxshi ko'rinadi, chunki uning videosi O'Z audiosi bilan yaratilgan. Shuning uchun tez-tez beriladigan savollar javobi ham shunday tayyorlanadi:
+- `backend/app/assets/answers.json` — tayyor javoblar (`id`, `when` — qachon ishlatiladi, `text`). Gemini matn modeli (JSON rejimi) savol shulardan biriga aniq mos kelsa `clip=<id>` qaytaradi →
+  backend `{"type":"clip","id":…}` yuboradi (TTS chaqirilmaydi: kvota sarflanmaydi, kechikish ~1–2 s) → brauzer `/avatar/answers/<id>.mp4` ni OVOZI BILAN ijro etadi (`AvatarVideo` `rig-answer` qatlami):
+  kutish ustida 150 ms da paydo bo'ladi, uy kadrida (lablar yopiq) tugab 400 ms da kutishga xiralashadi. Klip davomida mikrofon yopiq (`liveAudio` `clipBusy`).
+- Mos kelmasa — erkin javob: matn → TTS → umumiy gapirish variantlari (quyida).
+- **Yangi javob qo'shish:** (1) javob matnini asosiy TTS ovozi bilan ovozlash (0.25 s jim + nutq + oxirigacha jim; WAV 24 kHz), (2) Higgsfield: `start_image = end_image` = uy kadri,
+  `audio_references` = shu audio, prompt — `tools/avatar-build/GENERATE.md` («javob klipi»), (3) `python build_answers.py idle=… <id>=<video>:<wav>` (moslash, bosh qulflash, yuz moslash, yorqinlik,
+  audio qo'shish; lab-ovoz mosligi va siljishi o'lchanadi: `lipMatch` ≥ 0.7, uchlarida lablar yopiq), (4) `out/answers/<id>.mp4` → `frontend/public/avatar/answers/`, `answers.json` ga yozuv.
+- Salom audiosi ham fayldan (`backend/app/assets/greeting.pcm`, matni `greeting.txt` — `GREETING_TEXT` bilan bir xil bo'lsa ishlatiladi): TTS kvotasi tugaganda va qayta ishga tushganda ham bir xil ovoz.
+  **Salom videosi (`greeting.mp4`) aynan shu audio bilan yaratilgan** (lab harakati shu ovozga mos; `greeting.pcm` ≈ 40 ms jimlikdan keyin boshlanadi, nutq ~1.5 s da). Shu sababli salom HAR DOIM tayyor fayldan
+  beriladi — TTS ham, Gemini Live ham (`live.py`: Live'dan salom so'ralmaydi, model qayta salomlashmasligi tizim ko'rsatmasida aytilgan). Salom matnini/ovozini o'zgartirish uchun `greeting.mp4` ham qayta yaratilishi kerak.
+  Frontendda salom audiosi oldindan to'planmaydi (ovoz kelishi bilan darhol boshlanadi) — to'planish faqat keyingi javoblarga tegishli.
 
 ### Pleyer (`src/AvatarVideo.tsx`, `src/avatarClips.ts`, `src/avatarClips.json`)
 - **Og'iz faqat ovoz bor paytda qimirlaydi**: brauzer ijro etilayotgan audio balandligini o'lchaydi (`liveAudio` level): ovoz bor → `speaking`, 0.17 s dan ko'p jim → chiqish.
@@ -96,6 +114,16 @@ Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
   Pleyer keyingi pauzaga ≤ 4 s qolganda klipning ushlab turish kadrini pauza boshiga to'g'rilaydi (tezlik 0.7–1.4), pauzada klip to'xtab turadi (og'iz yopiq), pauza tugagach davom etadi.
   Keyingi variantga ham aynan pauzada o'tiladi (juftlik bo'yicha kadr-mos nuqta, bo'lmasa B ning tasodifiy yopiq kadriga). Ixtiyoriy joyda yopiq oynada almashish O'CHIRILGAN
   (`GRAPH_SWITCH_ANYWHERE`): uzun javobda har ~6 s da og'iz ~0.3 s yopilib qolardi, ovoz esa uzluksiz davom etardi. Pauza bo'lmasa — klip oxirgi yopiq oynasida keyingisiga o'tadi.
+- **Og'iz ovozdan kech qolmasligi uchun video OLDINDAN boshlanadi** (erkin javoblar): klip kirishi (ijro ~40 ms + lablar klipning birinchi ~0.1 s ida ochiladi + yuz qatlami 200 ms da xira bo'lib chiqadi)
+  tufayli og'iz klip boshlanishidan ~0.15–0.25 s keyin ko'rinadi. Shuning uchun gap boshida klip ovozdan `VIDEO_LEAD_S` (0.2 s, `liveAudio.ts`) oldin boshlanadi (`TurnInfo.startsIn`; audio boshidagi
+  jimlik yetmasa ovoz shuncha kechiktiriladi), pauzadan keyin to'xtab turgan klip pauza tugashidan `RESUME_LEAD_S` (0.14 s) oldin davom etadi. Rasm ovozdan biroz oldin bo'lsa ko'z sezmaydi,
+  ovoz rasmdan oldin bo'lsa ~45 ms dan sezila boshlaydi. Salom videosida bu `greetDelayS` bilan hal qilingan (og'iz ovozdan ~12 ms oldin).
+- **Keyingi hodisaga qarab klip tanlash** (erkin javoblar): pleyer har doim «keyingi hodisa»gacha (keyingi ovoz pauzasi yoki ovoz oxiri) qancha vaqt qolganini biladi va shu vaqtda
+  lablar yopiq kadr keladigan klip/joyni tanlaydi: (1) KIRISHDA ikki tayyor buferdan mos kadri bori boshlanadi (`liveAudio` TTS audiosi to'liq kelishini 1.2 s gacha kutadi — qisqa javobda
+  uzunlik kirish paytidayoq ma'lum); (2) PAUZADA keyingi klipning shunday yopiq kadriga (u) o'tiladiki, D soniyadan keyin yana yopiq kadr (h) kelsin; (3) KLIP OXIRIDA ovoz tugashi yaqin
+  bo'lsa — keyingi klipga mos (u, h) juftligidan kiriladi, ovoz klip oxiridan ≤ 0.6 s keyin tugasa boshqa klipga o'tilmaydi: joriy klip biroz sekinlab, oxirgi yopiq kadri ovoz tugashiga
+  to'g'rilanadi; (4) ovoz tugashi bilan o'ynash tezligi asliga qaytadi, to'xtab turgan klip darhol kutishga o'tadi. Bularsiz sinovda har ~4 erkin javobdan birida og'iz ovozdan keyin
+  0.4–0.8 s (bir marta 3 s, sekinlashtirilgan tezlikda) qimirlab turgan.
 - **Variantdan variantga FAQAT og'iz YOPIQ paytda va xira-o'tishsiz (bir kadrda) almashadi.** Og'iz ochiq paytda almashsa yoki xira-o'tish bo'lsa lablar «bijirlab» bilinadi (foydalanuvchi
   shikoyati); yopiq paytda ikki yuz deyarli bir xil, shuning uchun bir kadrli almashish ko'rinmaydi. `build_assets.py` (`build_graph`) har (A, B) juftligi uchun A ning yopiq-og'iz oralig'i
   markazi → B ning yopiq-og'iz oralig'i markazi (B da kamida 1.2 s qolsin) juftliklarini yuz hududi farqi bo'yicha saralaydi (`avatarClips.json` `graph.pairs["A-B"] = [[A kadri, B kadri, narx], …]`,
@@ -127,6 +155,11 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
 
 ### Sinov
+**Haqiqiy odamdek sinov** (haqiqiy backend, ovozli savollar): `REAL=1 REAL_S=138 TARGET=http://127.0.0.1:5173/ MIC_WAV=<savollar.wav> node scripts/test-avatar-transitions.mjs` — Chrome soxta
+mikrofonga WAV faylni beradi (salom uchun 14 s jim, so'ng savollar orasida ~21 s), brauzer VAD → backend (LLM, tayyor klip yoki TTS) → avatar. Har o'tish quyidagi chegaralar bilan o'lchanadi,
+qo'shimcha: tayyor klip/erkin javoblar soni, gap oxiri ovozga to'g'rilangan/kutib chiqilgan (kutish ms), pauzada to'xtashlar va hodisalar ketma-ketligi. ⚠️ Har erkin javob 1 ta TTS so'rovi
+(kuniga 100 ta chegara) — sinovni tejab ishlating. Soxta rejim (standart) backend va kvota talab qilmaydi.
+
 `npm run build && npm run test:transitions` (haqiqiy Chrome, soxta Gemini oqimi): har bir o'tish turi alohida o'lchanadi — kechikish, qotish
 (≤ 110 ms), kadrlararo sakrash (furajka/soch, yuz, tana: shu videoning o'zidagi eng katta oddiy qadamdan ×1.15+0.5 dan oshmasin) va qorayish chaqnashi
 (≤ 6%; kutish → salom: ≤ 9% — qo'l ko'tarilganda sahna yorqinligi haqiqatan tushadi). Ekran yozuvi (CDP screencast) ba'zan kadr tashlaydi — >100 ms oraliqli juftliklar va «Suhbatni boshlash/Tugatish» bosilgan payt hisobga olinmaydi.

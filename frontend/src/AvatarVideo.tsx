@@ -15,7 +15,7 @@
 //  - Chiqish: gapirishdan kutishga FAQAT og'iz yopiq va bosh kutish o'rnida bo'lgan oraliqlarda (avatarClips.json); salom oxirida uy kadri.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { FRAME_H, FRAME_W, SPEAKING_VARIANTS, assetUrl, isExitTime, isHoldTime, pickLinked, pickTransition, pickVariant, planExit, transitionsFor, PLAN_MAX_RATE, PLAN_MIN_RATE } from "./avatarClips";
-import type { TurnInfo } from "./liveAudio";
+import { VIDEO_LEAD_S, type TurnInfo } from "./liveAudio";
 
 type Layer = "idle" | "a" | "b"; // idle; a/b — gapirish uchun ikki bufer (biri ijro etiladi, ikkinchisi keyingi variant bilan tayyor)
 const LAYERS: readonly Layer[] = ["idle", "a", "b"];
@@ -56,6 +56,8 @@ const MIN_TRACK_RATE = 0.4; // ovoz tugashiga qarab sozlashda (kuzatish) tezlik 
 const MAX_TRACK_RATE = 2.5;
 const HOLD_MAX_S = 0.12; // lablar yopiq kadrda kutish: ovoz tugashiga shundan ko'p qolgan bo'lsa klip TO'XTATILMAYDI (ovoz gapirayotganda video qotmasin)
 const END_LEAD_S = 0.05; // lablar yopiq kadrga oxirgi tovushdan ~50 ms OLDIN yetadi (kadr/rAF kechikishi hisobiga), qolgan vaqt shu kadrda kutadi
+// Pauzada to'xtab turgan klip ovoz qaytishidan shuncha OLDIN davom ettiriladi: play() ~40 ms + lablar yopiq kadrdan ~0.1 s da ochiladi (o'lchangan) — aks holda og'iz ovozdan kech ochiladi
+const RESUME_LEAD_S = 0.14;
 const VOICE_HOLD_TURN_MS = 1500; // javob davomida (turn tugamagan): jumlalar orasidagi pauza shu vaqtgacha gapirishni uzmaydi
 const VOICE_HOLD_MS = 170; // shuncha jim bo'lsa og'iz yopiladi: so'zlar orasidagi qisqa tushishda gapirish↔kutish miltillamasin
 const CHAIN_LEAD_S = 0.2; // variant tugashiga shuncha qolganda keyingisi boshlanadi (ikkalasi uy kadrida)
@@ -74,6 +76,10 @@ interface Props {
   greetStart: number;
   /** javob davomida true (liveAudio): jumlalar orasidagi pauzada og'iz yopilib-ochilmasin */
   turnRef: MutableRefObject<TurnInfo>;
+  /** tayyor javob klipi (/avatar/answers/<id>.mp4 — video O'Z OVOZI bilan, lab harakati ovozga mos); key har yangi javobda ortadi */
+  answer: { id: string; key: number } | null;
+  /** javob klipi tugadi (yoki ijro etib bo'lmadi) */
+  onAnswerEnd: () => void;
 }
 
 const play = (v: HTMLVideoElement | null) => {
@@ -103,7 +109,11 @@ const park = (v: HTMLVideoElement | null) => {
   }
 };
 
-export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }: Props) {
+export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, answer, onAnswerEnd }: Props) {
+  const answerEl = useRef<HTMLVideoElement>(null);
+  const answerOn = useRef(false);
+  const onAnswerEndRef = useRef(onAnswerEnd);
+  onAnswerEndRef.current = onAnswerEnd;
   const videos = useRef<Record<Layer | "greeting", HTMLVideoElement | null>>({ idle: null, a: null, b: null, greeting: null });
   const containerRef = useRef<HTMLDivElement>(null);
   const rigRef = useRef<HTMLDivElement>(null);
@@ -118,16 +128,18 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
   const endPlan = useRef<{ layer: "a" | "b"; target: number } | null>(null); // ovoz tugashiga to'g'rilangan chiqish oynasi
   const dbgLast = useRef(0); // (faqat sinov: window.__avatarDbg bo'lsa holat yoziladi)
   const pausePlan = useRef<{ layer: "a" | "b"; target: number; sw: { to: "a" | "b"; u: number } | null; hold: boolean; since: number } | null>(null); // ovoz pauzasiga to'g'rilangan yopiq kadr
+  const tailEntry = useRef<{ layer: "a" | "b"; u: number } | null>(null); // klip oxirida keyingi klipga kirish kadri (ovoz tugashiga mos yopiq kadr bo'lishi uchun)
   const speakSince = useRef(0); // joriy gapirish klipi boshlangan payt (performance.now)
   const exiting = useRef<"a" | "b" | null>(null); // chiqish davom etyapti: shu gapirish buferi yopiq lablar kadrida muzlatilgan
   const exitSince = useRef<number | null>(null); // ovoz tugagan payt (o'tish oralig'ini kutish boshlangan)
-  const [view, setView] = useState<{ front: Layer; prev: Layer | null; out: Layer | null; greet: boolean; fadeMs: number; bodyFade: boolean }>({
+  const [view, setView] = useState<{ front: Layer; prev: Layer | null; out: Layer | null; greet: boolean; fadeMs: number; bodyFade: boolean; answer: boolean }>({
     front: "idle",
     prev: null,
     out: null,
     greet: false,
     fadeMs: EXIT_FADE_MS,
     bodyFade: false,
+    answer: false,
   });
 
   /** Buferga variant yuklaydi (to'xtatilgan, boshida). */
@@ -204,6 +216,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
         sw.current = null;
         endPlan.current = null;
         pausePlan.current = null;
+        tailEntry.current = null;
         speakSince.current = performance.now();
         restart(v[to]); // gapirish doim boshidan: uy kadri
         speak.current.last = speak.current.staged[to];
@@ -211,7 +224,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
       }
       if (greetChanged && greet) restart(v.greeting);
       exitSince.current = null;
-      setView((s) => ({ front: to, prev: faceChanged ? from : s.prev, out: null, greet, fadeMs: faceChanged ? fadeMs : s.fadeMs, bodyFade: false }));
+      setView((s) => ({ ...s, front: to, prev: faceChanged ? from : s.prev, out: null, greet, fadeMs: faceChanged ? fadeMs : s.fadeMs, bodyFade: false }));
       startFadeTimer();
     },
     [startFadeTimer],
@@ -231,7 +244,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
   }, [startFadeTimer]);
 
   /** Gapirish davomida keyingi variantga ulanadi (ikkalasi uy kadrida: sezilmaydi). */
-  const chainNext = useCallback(() => {
+  const chainNext = useCallback((keepTime = false) => {
     const s = speak.current;
     const old = s.cur;
     const nxt = other(old);
@@ -242,7 +255,8 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
     endPlan.current = null;
     pausePlan.current = null;
     speakSince.current = performance.now();
-    restart(videos.current[nxt]);
+    if (keepTime) play(videos.current[nxt]); // oldindan surilgan yopiq kadrdan davom etadi (tailEntry)
+    else restart(videos.current[nxt]);
     setView((st) => ({ ...st, front: nxt, prev: null, out: old, fadeMs: CHAIN_FADE_MS, bodyFade: true })); // yangi klip darhol (yuz), eski faqat tanada xira bo'lib ketadi
     startFadeTimer(BODY_FADE_MS + 80);
   }, [startFadeTimer]);
@@ -261,6 +275,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
   const onSpeakEnded = useCallback(
     (layer: "a" | "b") => {
       if (frontRef.current !== layer || greetRef.current) return;
+      if (endPlan.current && endPlan.current.layer === layer) return; // ovoz tugashiga rejalangan yopiq kadr — klipning oxiri: oxirgi kadrda (lablar yopiq) kutadi
       if (voiceRef.current) {
         const sp = videos.current[other(layer)];
         if (sp && sp.readyState >= 3) chainNext();
@@ -317,7 +332,8 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
     let lastVoice = -1e9;
     const tick = () => {
       const now = performance.now();
-      if (levelRef.current > VOICE_ON) lastVoice = now;
+      // Javob ovozi eshitilishiga VIDEO_LEAD_S qolganda klip boshlanadi (klip kirishi ~0.25 s: og'iz ovoz bilan birga ochilsin); keyin ovozning o'zi (balandlik) boshqaradi
+      if (levelRef.current > VOICE_ON || (turnRef.current.active && turnRef.current.startsIn <= VIDEO_LEAD_S)) lastVoice = now;
       const voice = now - lastVoice < (turnRef.current.active ? VOICE_HOLD_TURN_MS : VOICE_HOLD_MS);
       if (voice !== voiceRef.current) {
         voiceRef.current = voice;
@@ -326,8 +342,33 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
           // salom paytida og'iz videoning o'zida
           if (voice) {
             exitSince.current = null;
-            if (!resumeSpeaking()) apply(true, false);
-          } else if (frontRef.current !== "idle") exitSince.current = now; // chiqish: og'iz yopiq va bosh kutish o'rnida bo'lgan kadrni kutadi
+            if (!resumeSpeaking()) {
+              // Javob uzunligi oldindan ma'lum bo'lsa (TTS: audio to'liq kelgan): ikki tayyor buferdan qaysi variantda lablar yopiq kadr ovoz tugashiga to'g'ri kelsa — o'sha boshlanadi
+              // (qisqa javobda mos kadr bo'lmasa og'iz ovozdan keyin ~0.4 s qimirlab turardi — sinovda ko'rilgan)
+              const tn = turnRef.current;
+              const fp = tn.pausesAhead.find((q) => q.in > 0.3); // birinchi ovoz pauzasi (bo'lsa)
+              if (tn.active && (tn.done || fp) && frontRef.current === "idle") {
+                const s0 = speak.current;
+                const r = (fp ? fp.in : tn.audibleRemaining) - END_LEAD_S;
+                const fit = (layer: "a" | "b") => {
+                  const sv = SPEAKING_VARIANTS[s0.staged[layer]];
+                  const pl = sv && (videos.current[layer]?.readyState ?? 0) >= 3 ? planExit(sv.holds, 0, r, sv.duration) : null;
+                  return pl ? Math.abs(pl.rate - 1) : Infinity;
+                };
+                if (fit(other(s0.cur)) < fit(s0.cur)) s0.cur = other(s0.cur);
+              }
+              apply(true, false);
+            }
+          } else if (frontRef.current !== "idle") {
+            exitSince.current = now; // chiqish: og'iz yopiq va bosh kutish o'rnida bo'lgan kadrni kutadi
+            // ovoz tugadi: rejalar bekor, klip ASL tezlikka qaytadi (sekinlashtirilgan tezlikda qolib ketsa og'iz ovozsiz bir necha soniya sekin qimirlab turardi — sinovda ko'rilgan)
+            const spv = videos.current[speak.current.cur];
+            if (spv) spv.playbackRate = 1;
+            endPlan.current = null;
+            pausePlan.current = null;
+            tailEntry.current = null;
+            sw.current = null;
+          }
         }
       }
       // gapirish tugagan: yopiq lablar kadriga yetishi bilan kutishga o'tadi (klip shu kadrda to'xtatiladi)
@@ -335,7 +376,10 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
         const sp0 = speak.current;
         const sp = videos.current[sp0.cur];
         const variant = SPEAKING_VARIANTS[sp0.staged[sp0.cur]];
-        if (!sp || !variant || isHoldTime(variant.holds, sp.currentTime) || (now - exitSince.current > EXIT_HOLD_WAIT_MS && isExitTime(variant.exits, sp.currentTime, sp.duration)) || now - exitSince.current > EXIT_MAX_WAIT_MS) apply(false, false);
+        if (!sp || !variant || sp.paused || isHoldTime(variant.holds, sp.currentTime) || (now - exitSince.current > EXIT_HOLD_WAIT_MS && isExitTime(variant.exits, sp.currentTime, sp.duration)) || now - exitSince.current > EXIT_MAX_WAIT_MS) {
+          (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "exit-fallback", at: now, waited: now - exitSince.current, hold: !!(sp && variant && (sp.paused || isHoldTime(variant.holds, sp.currentTime))) });
+          apply(false, false);
+        }
       }
       const dbgArr = (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg;
       if (dbgArr && now - dbgLast.current > 100) {
@@ -398,12 +442,12 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
           }
           // 1b) OVOZ PAUZALARI: og'iz yopiladigan kadr haqiqiy pauzaga to'g'rilanadi, pauzada klip to'xtab turadi (og'iz yopiq), keyingi variantga ham aynan pauzada o'tiladi.
           //     Shunda og'iz faqat ovozda pauza bo'lganda yopiladi (gap oqib turganda — hech qachon).
-          const nextPause = turn.pausesAhead.find((p) => p.in + p.len > 0.03);
+          const nextPause = turn.pausesAhead.find((p) => p.in + p.len > RESUME_LEAD_S); // oxirgi RESUME_LEAD_S da pauza tugagan hisoblanadi: klip davom etadi va shu pauza qayta rejalanmaydi
           const pp = pausePlan.current;
           if (pp && pp.layer !== s.cur && !pp.sw) pausePlan.current = null;
           if (pausePlan.current && pausePlan.current.hold) {
             const hp = pausePlan.current;
-            if (!nextPause || nextPause.in > 0.05 || nextPause.in + nextPause.len <= 0.02 || now - hp.since > 4000) {
+            if (!nextPause || nextPause.in > 0.05 || nextPause.in + nextPause.len <= RESUME_LEAD_S || now - hp.since > 4000) {
               // pauza tugadi (yoki xavfsizlik): ijro davom etadi
               (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "pauseresume", at: now });
               pausePlan.current = null;
@@ -413,46 +457,54 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
           } else if (nextPause && nextPause.in >= 0 && nextPause.in <= PLAN_AHEAD_S && nextPause.in < remaining - 0.3 && !sw.current && !exiting.current) {
             let plan = pausePlan.current;
             if (!plan) {
-              const wantSwitch = spare && spare.readyState >= 2 && !spare.seeking && (now - speakSince.current > PAUSE_SWITCH_DWELL_MS || cur.duration - t < 4.5);
-              let planned: { target: number; sw: { to: "a" | "b"; u: number } | null } | null = null;
-              if (wantSwitch) {
-                const trs = transitionsFor(s.staged[s.cur], s.staged[spareLayer]);
-                const p = planExit(trs.map((x) => x.t), t, Math.max(0.06, nextPause.in - END_LEAD_S), cur.duration);
-                if (p) {
-                  const tr = trs.filter((x) => Math.abs(x.t - p.target) < 1e-6).sort((x, y) => x.cost - y.cost)[0];
-                  if (tr) {
+              const p = planExit(variant.holds, t, Math.max(0.06, nextPause.in - END_LEAD_S), cur.duration);
+              if (p) {
+                // Pauzadan KEYINGI hodisagacha (keyingi pauza yoki ovoz oxiri) vaqt D: pauzadan keyin qaysi klipning qaysi joyidan davom etilsa, D dan keyin yana yopiq kadr kelishi
+                // tekshiriladi — shunda keyingi pauza/gap oxirida ham og'iz ovoz bilan birga yopiladi (aks holda og'iz ovozdan keyin ~0.6 s qimirlab turardi — sinovda ko'rilgan).
+                const pi = turn.pausesAhead.indexOf(nextPause);
+                const after = pi >= 0 ? turn.pausesAhead[pi + 1] : undefined;
+                const pauseEnd = nextPause.in + nextPause.len;
+                const D = (after ? after.in - pauseEnd : turn.done ? turn.audibleRemaining - pauseEnd - END_LEAD_S : NaN) + RESUME_LEAD_S; // klip pauza tugashidan RESUME_LEAD_S oldin davom etadi
+                const fitFrom = (holds: readonly number[], from: number) => {
+                  let best = Infinity;
+                  if (!(D > 0.3)) return best;
+                  for (const h of holds) {
+                    if (h <= from + 0.2) continue;
+                    const ratio = (h - from) / D;
+                    if (ratio >= 0.75 && ratio <= 1.3) best = Math.min(best, Math.abs(ratio - 1));
+                  }
+                  return best;
+                };
+                const bv = SPEAKING_VARIANTS[s.staged[spareLayer]];
+                const canSwitch = !!bv && !!spare && spare.readyState >= 2 && !spare.seeking;
+                const stayFit = fitFrom(variant.holds, p.target);
+                const due = now - speakSince.current > PAUSE_SWITCH_DWELL_MS || cur.duration - t < 4.5; // klip yetarlicha o'ynadi yoki tugashiga yaqin
+                let swTo: { to: "a" | "b"; u: number } | null = null;
+                if (canSwitch && bv && spare && (due || stayFit === Infinity)) {
+                  const cand = bv.holds.filter((u) => u >= 0.02 && u <= bv.duration - 1.2);
+                  let bu = -1;
+                  let bf = Infinity;
+                  for (const u of cand) {
+                    const f = fitFrom(bv.holds, u);
+                    if (f < bf) {
+                      bf = f;
+                      bu = u;
+                    }
+                  }
+                  // mos joy topilmasa: joriy klip mos bo'lsa — qolinadi; bo'lmasa (va almashish vaqti kelgan bo'lsa) — tasodifiy yopiq kadr (ikki yopiq yuz deyarli bir xil)
+                  if (bu < 0 && stayFit === Infinity && due && cand.length) bu = cand[Math.floor(Math.random() * cand.length)];
+                  if (bu >= 0) {
                     try {
-                      spare!.pause();
-                      spare!.currentTime = tr.u; // zaxira bufer B ning yopiq-og'iz kadriga oldindan suriladi
-                      planned = { target: p.target, sw: { to: spareLayer, u: tr.u } };
+                      spare.pause();
+                      spare.currentTime = bu; // zaxira bufer B ning yopiq-og'iz kadriga oldindan suriladi
+                      swTo = { to: spareLayer, u: bu };
                     } catch {
                       /* metadata hali yuklanmagan */
                     }
                   }
                 }
+                plan = pausePlan.current = { layer: s.cur, target: p.target, sw: swTo, hold: false, since: now };
               }
-              if (!planned) {
-                const p = planExit(variant.holds, t, Math.max(0.06, nextPause.in - END_LEAD_S), cur.duration);
-                if (p) {
-                  planned = { target: p.target, sw: null };
-                  if (wantSwitch && spare) {
-                    // juftlik uchun kadr-mos nuqta yo'q: ikkita yopiq yuz baribir deyarli bir xil — B ning tasodifiy yopiq kadriga (B da >= 1.5 s qolsin) o'tiladi
-                    const bv = SPEAKING_VARIANTS[s.staged[spareLayer]];
-                    const cand = bv ? bv.holds.filter((u) => u >= 0.05 && u <= bv.duration - 1.5) : [];
-                    if (cand.length) {
-                      const u = cand[Math.floor(Math.random() * cand.length)];
-                      try {
-                        spare.pause();
-                        spare.currentTime = u;
-                        planned.sw = { to: spareLayer, u };
-                      } catch {
-                        /* metadata hali yuklanmagan */
-                      }
-                    }
-                  }
-                }
-              }
-              if (planned) plan = pausePlan.current = { layer: s.cur, target: planned.target, sw: planned.sw, hold: false, since: now };
             }
             if (plan) {
               if (t >= plan.target - 0.01) {
@@ -520,11 +572,54 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
             if (cur.playbackRate !== 1) cur.playbackRate = 1;
           }
         }
-        // variant tugayapti va mos nuqta topilmadi: klipning oxirgi (yopiq-og'iz) oynasiga kirganda keyingi variantning boshiga bir kadrda o'tadi (ikkalasi uy kadrida, og'iz yopiq)
-        if (cur && variant && Number.isFinite(cur.duration) && !cur.paused && spare && spare.readyState >= 3 && !sw.current) {
+        // variant tugayapti: klipning oxirgi (yopiq-og'iz) oynasiga kirganda keyingi variantga bir kadrda o'tadi (og'iz yopiq)
+        if (cur && variant && Number.isFinite(cur.duration) && !cur.paused && spare && spare.readyState >= 2 && !sw.current) {
           const last = variant.exits[variant.exits.length - 1];
-          const inTail = !!last && last[1] >= cur.duration - 0.05 && cur.currentTime >= last[0] + Math.min(0.06, (last[1] - last[0]) / 2);
-          if (inTail || cur.duration - cur.currentTime < CHAIN_LEAD_S / 4) chainNext();
+          const tailStart = last && last[1] >= cur.duration - 0.05 ? last[0] + Math.min(0.06, (last[1] - last[0]) / 2) : cur.duration - CHAIN_LEAD_S / 4;
+          const left = cur.duration - cur.currentTime;
+          // Ovoz tugashi yaqin (oldindan ma'lum) va joriy klipda unga mos yopiq kadr yo'q: keyingi klipga shunday yopiq kadrdan (u) kiriladiki, undagi keyingi yopiq kadr (h)
+          // ovoz tugashiga to'g'ri kelsin (aks holda klip boshidan boshlanib, ovoz tugaganda og'iz ochiq qolardi va ~0.6 s qimirlab turardi — sinovda ko'rilgan)
+          const pauseFirst = turn.pausesAhead.some((q) => q.in + q.len > 0.03 && q.in < remaining - 0.3); // ovoz oxirigacha pauza bor — uni pauza rejasi hal qiladi
+          if (!tailEntry.current && !endPlan.current && !pausePlan.current && !pauseFirst && left < 1.2 && Number.isFinite(remaining) && remaining > 0.15 && remaining < 6) {
+            const hs = variant.holds;
+            const lastHold = hs.length && hs[hs.length - 1] >= cur.duration - 0.5 ? hs[hs.length - 1] : cur.duration - 0.03; // klip oxiridagi yopiq kadr (uy kadri)
+            const rAfter = remaining - (lastHold - cur.currentTime) - END_LEAD_S; // klip yopiq kadriga yetgach ovoz yana shuncha davom etadi
+            const bv = SPEAKING_VARIANTS[s.staged[spareLayer]];
+            const r = remaining - Math.max(0, tailStart - cur.currentTime) - END_LEAD_S;
+            let best: { u: number; err: number } | null = null;
+            if (bv && rAfter > 0.6 && r > 0.3) {
+              for (const u of bv.holds) {
+                for (const h of bv.holds) {
+                  if (h <= u + 0.2) continue;
+                  const ratio = (h - u) / r;
+                  if (ratio < 0.75 || ratio > 1.3) continue;
+                  const err = Math.abs(ratio - 1);
+                  if (!best || err < best.err) best = { u, err };
+                }
+              }
+            }
+            if (best) {
+              try {
+                spare.pause();
+                spare.currentTime = best.u;
+                tailEntry.current = { layer: spareLayer, u: best.u };
+              } catch {
+                /* metadata hali yuklanmagan */
+              }
+            } else if (lastHold > cur.currentTime + 0.05) {
+              // ovoz klip oxiriga yaqin tugaydi (yoki keyingi klipda mos juftlik yo'q): boshqa klipga o'tilmaydi — shu klip biroz sekinlab/tezlab, oxirgi yopiq kadri ovoz tugashiga
+              // to'g'rilanadi (aks holda yangi klip boshlanib, 0.4 s dan keyin og'iz ochiq qolardi va ~0.8 s qimirlab turardi — sinovda ko'rilgan)
+              const rate = (lastHold - cur.currentTime) / Math.max(0.05, remaining - END_LEAD_S);
+              if (rate >= 0.5 && rate <= 1.7) endPlan.current = { layer: s.cur, target: lastHold };
+            }
+          }
+          // ovoz tugashiga rejalangan yopiq kadr shu klipning oxirida bo'lsa — almashmaydi (reja o'zi yopadi); kirish kadri hali surilayotgan bo'lsa bir-ikki kadr kutadi
+          const te = tailEntry.current;
+          const seekWait = !!te && spare.seeking && left > 0.08;
+          if ((cur.currentTime >= tailStart || left < CHAIN_LEAD_S / 4) && !(endPlan.current && endPlan.current.layer === s.cur) && !seekWait) {
+            tailEntry.current = null;
+            chainNext(!!te && te.layer === spareLayer && !spare.seeking && Math.abs(spare.currentTime - te.u) < 0.1);
+          }
         }
       }
       raf = requestAnimationFrame(tick);
@@ -547,6 +642,53 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
     if (pendingGreet.current) startGreeting();
   }, [greetStart, startGreeting]);
 
+  // TAYYOR JAVOB KLIPI: video o'z ovozi bilan (lab harakati shu ovozga yaratilgan — salom kabi). Klip uy kadrida boshlanib, uy kadrida (lablar yopiq) tugaydi:
+  // kutish ustida 150 ms da paydo bo'ladi, tugagach 400 ms da kutishga xiralashadi. Gapirish variantlari, tezlik sozlash, almashinuvlar bu yerda ishlatilmaydi.
+  const endAnswer = useCallback(() => {
+    if (!answerOn.current) return;
+    answerOn.current = false;
+    greetRef.current = false;
+    setView((s) => ({ ...s, answer: false }));
+    onAnswerEndRef.current();
+  }, []);
+
+  useEffect(() => {
+    const el = answerEl.current;
+    if (!answer || !el) return;
+    let cancelled = false;
+    const start = () => {
+      if (cancelled || answerOn.current) return;
+      pendingGreet.current = false;
+      if (frontRef.current !== "idle") apply(false, false); // gapirish varianti ko'rinib turgan bo'lsa — klip ostida kutishga qaytadi
+      answerOn.current = true;
+      greetRef.current = true; // klip davomida variant mantiqi (ovoz bo'yicha almashinuv) ishlamaydi — salomdagi kabi
+      try {
+        el.currentTime = 0;
+      } catch {
+        /* metadata hali yuklanmagan */
+      }
+      el.muted = false;
+      el.volume = 1;
+      el.play().catch(() => endAnswer());
+      setView((s) => ({ ...s, answer: true }));
+    };
+    const fail = window.setTimeout(() => {
+      if (!answerOn.current) {
+        cancelled = true;
+        onAnswerEndRef.current(); // klip yuklanmadi — suhbat davom etsin
+      }
+    }, 5000);
+    el.src = assetUrl(`answers/${answer.id}.mp4`);
+    el.load();
+    if (el.readyState >= 3) start();
+    else el.addEventListener("canplay", start, { once: true });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fail);
+      el.removeEventListener("canplay", start);
+    };
+  }, [answer, apply, endAnswer]);
+
   // Suhbat tugadi — kutilayotgan salom bekor, avatar idle'ga qaytadi.
   useEffect(() => {
     if (active) return;
@@ -554,6 +696,12 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
     window.clearTimeout(timers.current.greet);
     window.clearTimeout(timers.current.exit);
     exitSince.current = null;
+    if (answerOn.current) {
+      answerOn.current = false;
+      greetRef.current = false;
+      answerEl.current?.pause();
+      setView((s) => ({ ...s, answer: false }));
+    }
     apply(false, false);
   }, [active, apply]);
 
@@ -605,6 +753,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef }:
             if (e.propertyName === "opacity" && !greetRef.current) finishFade();
           }}
         />
+        <video ref={answerEl} className={`rig-answer${view.answer ? " on" : ""}`} playsInline preload="auto" disablePictureInPicture tabIndex={-1} onEnded={endAnswer} onError={endAnswer} />
       </div>
     </div>
   );

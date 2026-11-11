@@ -15,11 +15,22 @@ export interface TurnInfo {
   audibleRemaining: number;
   /** kelgusi ovoz pauzalari (>= 0.2 s jim, ichida/oldinda): in — pauza boshlanishiga soniya (<= 0: pauza davom etyapti), len — pauza uzunligi */
   pausesAhead: { in: number; len: number }[];
+  /** javobning birinchi eshitiladigan tovushiga shuncha soniya qoldi (qurilma kechikishi bilan); Infinity — rejalanmagan yoki boshlanib bo'lgan. Avatar og'zi shundan ~VIDEO_LEAD_S oldin qimirlay boshlaydi */
+  startsIn: number;
 }
-export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0, pausesAhead: [] });
+export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0, pausesAhead: [], startsIn: Infinity });
+
+/**
+ * Gapirish klipi ovozdan shuncha OLDIN boshlanadi: klip kirishi (ijro ishga tushishi ~40 ms + lablar klipning birinchi ~0.1 s ida ochiladi + yuz qatlami 200 ms da xira bo'lib chiqadi)
+ * tufayli og'iz ekranda klip boshlanishidan ~0.15–0.25 s keyin ko'rinadi (klip ovoz bilan birga boshlansa og'iz ovozdan KECH qolgan). Rasm ovozdan biroz OLDIN bo'lsa ko'z sezmaydi
+ * (ovoz rasmdan oldin bo'lsa ~45 ms dan sezila boshlaydi). Salom videosida bu allaqachon hisobga olingan (greetDelayS).
+ */
+export const VIDEO_LEAD_S = 0.2;
 
 export interface LiveHandle {
   stop: () => void;
+  /** tayyor javob klipi (video o'z ovozi bilan) ijrosi tugadi — mikrofon qayta ochiladi */
+  clipEnded: () => void;
 }
 
 export interface LiveOpts {
@@ -32,6 +43,10 @@ export interface LiveOpts {
   greetDelayS?: number;
   /** javob davomida true: audio kelgan paytdan to turn_complete va ijro tugaguncha — jumlalar orasidagi pauzada og'iz yopilib-ochilmasin */
   turnRef?: { current: TurnInfo };
+  /** backend tayyor javob klipini tanladi (lab harakati o'z ovoziga mos video): pleyer uni ijro etadi, WS orqali audio kelmaydi */
+  onClip?: (id: string) => void;
+  /** suhbat boshida: mavjud tayyor javob kliplari (oldindan yuklash uchun) */
+  onClips?: (ids: string[]) => void;
 }
 
 const PLAY_RATE = 1; // ijro tezligi (1 = asl)
@@ -42,7 +57,7 @@ function wsUrl(): string {
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -56,6 +71,16 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let busy = true; // javob (yoki boshlang'ich salom) tugamaguncha mikrofon VAD yopiq — ikki ovoz aralashmasin
   let busyUntil = performance.now() / 1000 + 15; // xavfsizlik: turn_complete kelmasa ham 15s dan keyin ochiladi
   let avatarSpeaking = false; // avatar gapirayotganda mikrofon VAD o'chiriladi (echo oldini olish)
+  // Ijro boshlanishidan oldin shuncha audio to'planadi (yoki javob to'liq kelguncha / shuncha vaqt o'tguncha). Gemini Live audioni REAL VAQTDA beradi (oldinda atigi ~0.5 s):
+  // bufersiz ovoz tugashi va pauzalar oldindan ma'lum bo'lmaydi — og'izni ovozga to'g'rilab bo'lmaydi (gap tugagach ham qimirlab turadi). TTS da audio tez keladi (~0.5 s qo'shimcha).
+  const LOOKAHEAD_S = 2.0;
+  let pend: Int16Array[] = [];
+  let pendDur = 0;
+  let pendTimer = 0;
+  let turnPlaying = false; // joriy javobning ijrosi boshlandi
+  let pendSince = 0;
+  const FAST_WAIT_MS = 1200;
+  let clipBusy = false; // tayyor javob klipi ijro etilyapti (mikrofon yopiq)
   let greeted = false; // birinchi audio keldimi (salom)
   let turnDone = false; // turn_complete keldi (ijro hali davom etayotgan bo'lishi mumkin)
   let lastAudioAt = 0;
@@ -63,6 +88,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let silStart: number | null = null;
   let seenSound = false;
   let audibleEnd = 0; // AudioContext vaqtida: oxirgi eshitiladigan tovush tugaydigan payt (jimlik hisobga olinmaydi)
+  let startsAt: number | null = null; // AudioContext vaqtida: joriy javobning birinchi eshitiladigan tovushi (TurnInfo.startsIn uchun)
 
   function enqueue(int16: Int16Array) {
     const f32 = new Float32Array(int16.length);
@@ -116,9 +142,66 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     sources = [];
     nextTime = 0;
     audibleEnd = 0;
+    pend = [];
+    pendDur = 0;
+    turnPlaying = false;
+    startsAt = null;
+    window.clearTimeout(pendTimer);
     pauses.length = 0;
     silStart = null;
     seenSound = false;
+  }
+
+  /** Kelgan (hali chalinmagan) audioning bosh jimligi (soniya): birinchi eshitiladigan blokgacha (10 ms, RMS >= 0.012, audibleEnd bilan bir xil chegara). */
+  function leadingSilence(chunks: Int16Array[]): number {
+    let blocks = 0;
+    for (const c of chunks) {
+      for (let b = 0; b + 240 <= c.length; b += 240) {
+        let sq = 0;
+        for (let i = b; i < b + 240; i++) sq += (c[i] / 32768) * (c[i] / 32768);
+        if (Math.sqrt(sq / 240) >= 0.012) return (blocks * 240) / 24000 / PLAY_RATE;
+        blocks++;
+      }
+    }
+    return 0;
+  }
+
+  function startTurnPlayback() {
+    if (turnPlaying) return;
+    turnPlaying = true;
+    window.clearTimeout(pendTimer);
+    if (!greeted) {
+      greeted = true;
+      nextTime = playCtx.currentTime + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
+      onGreetAudio?.();
+      (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
+    } else {
+      // javob ovozi: bosh jimlik (TTS audiosida odatda bor) video oldindan boshlanishiga yetadi, yetmasa ovoz shuncha kechiktiriladi — og'iz ovoz bilan birga ochiladi
+      const lead = leadingSilence(pend);
+      nextTime = playCtx.currentTime + Math.max(0.05, VIDEO_LEAD_S + 0.03 - lead);
+      startsAt = nextTime + lead;
+    }
+    const q = pend;
+    pend = [];
+    pendDur = 0;
+    for (const c of q) enqueue(c);
+  }
+
+  /** Kelgan audio: javob boshida LOOKAHEAD_S to'planadi, keyin uzluksiz ijro. */
+  function receive(int16: Int16Array) {
+    if (!greeted && !turnPlaying) startTurnPlayback(); // salom: tayyor audio, oldindan to'planmaydi — video va ovoz darhol boshlanadi
+    if (turnPlaying) {
+      enqueue(int16);
+      return;
+    }
+    pend.push(int16);
+    pendDur += int16.length / 24000;
+    if (pend.length === 1) {
+      pendSince = performance.now();
+      pendTimer = window.setTimeout(startTurnPlayback, LOOKAHEAD_S * 1000);
+    }
+    // audio real vaqtdan tez kelyapti (TTS): javob to'liq kelishini (turn_complete) FAST_WAIT_MS gacha kutadi — qisqa javobda ovoz tugashi kirish paytidayoq ma'lum bo'ladi
+    if (pendDur >= LOOKAHEAD_S && performance.now() - pendSince >= FAST_WAIT_MS) startTurnPlayback();
   }
 
   // --- Mikrofon (PCM16, 16kHz ga downsample) ---
@@ -198,12 +281,6 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) {
-      if (!greeted) {
-        greeted = true;
-        nextTime = playCtx.currentTime + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
-        onGreetAudio?.();
-        (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
-      }
       if (turnRef && !turnRef.current.active) {
         pauses.length = 0; // yangi javob: pauza kuzatuvi boshidan
         silStart = null;
@@ -215,20 +292,30 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         turnRef.current.active = true;
         turnRef.current.done = false;
       }
-      enqueue(new Int16Array(ev.data));
+      receive(new Int16Array(ev.data));
     } else {
       try {
         const m = JSON.parse(ev.data as string);
-        if (m.type === "ready") onState("listening");
+        if (m.type === "ready") {
+          onState("listening");
+          if (Array.isArray(m.clips)) onClips?.(m.clips as string[]);
+        } else if (m.type === "clip") {
+          clipBusy = true; // klip tugaguncha mikrofon yopiq (clipEnded)
+          onClip?.(String(m.id));
+        }
         else if (m.type === "interrupted") flush();
         else if (m.type === "turn_complete") {
           turnDone = true;
+          if (pend.length && !turnPlaying) startTurnPlayback(); // javob to'liq keldi: kutmasdan ijro
           if (turnRef) turnRef.current.done = true;
           // audio ijrosi tugagach + qisqa pauza (ovoz aks-sadosi mikrofonga tushmasin) mikrofon ochiladi
           const wait = Math.max(0, nextTime - playCtx.currentTime) + 0.8;
           busyUntil = performance.now() / 1000 + wait;
         }
-        else if (m.type === "error") onError(m.msg || "xato");
+        else if (m.type === "error") {
+          (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "ws-error", msg: m.msg });
+          onError(m.msg || "xato");
+        }
       } catch {
         /* ignore */
       }
@@ -249,22 +336,29 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const rms = Math.sqrt(sum / timeBuf.length);
     const level = Math.min(1, rms * 3.2); // kuchaytirish
     onLevel(level);
-    avatarSpeaking = sources.length > 0;
+    const dbgLvl = (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg;
+    if (dbgLvl) dbgLvl.push({ ev: "lvl", at: performance.now(), l: level, ol: playCtx.outputLatency || 0 }); // sinov: ovoz boshlanishi vs og'iz ochilishi
+    avatarSpeaking = sources.length > 0 || pend.length > 0 || clipBusy;
     if (turnRef?.current.active) {
       const t = performance.now() / 1000;
       turnRef.current.remaining = Math.max(0, nextTime - playCtx.currentTime);
       const outLat = Math.min(0.25, playCtx.outputLatency || playCtx.baseLatency || 0); // eshitilgan payt = rejalangan payt + qurilma kechikishi
       turnRef.current.audibleRemaining = Math.max(0, audibleEnd + outLat - playCtx.currentTime);
       const ct = playCtx.currentTime;
+      if (startsAt !== null && ct > startsAt + outLat + 0.5) startsAt = null; // ovoz boshlanib bo'ldi: keyingisini balandlik (level) boshqaradi
+      turnRef.current.startsIn = startsAt === null ? Infinity : startsAt + outLat - ct;
       while (pauses.length && pauses[0].end + outLat < ct - 1) pauses.shift();
       turnRef.current.pausesAhead = pauses.filter((p) => p.end + outLat > ct).slice(0, 6).map((p) => ({ in: p.start + outLat - ct, len: p.end - p.start }));
-      const drained = sources.length === 0 && nextTime <= playCtx.currentTime; // hamma kelgan audio chalib bo'lindi
+      const drained = sources.length === 0 && pend.length === 0 && nextTime <= playCtx.currentTime; // hamma kelgan audio chalib bo'lindi
       // javob tugadi (turn_complete + hamma audio chalindi) yoki audio kelmay qoldi va chalinadigani ham yo'q (xavfsizlik) — og'iz endi ovoz bo'yicha boshqariladi
       if (drained && (turnDone || t - lastAudioAt > 6)) {
         turnRef.current.active = false;
+        turnPlaying = false; // keyingi javob yana oldindan to'planadi
         turnRef.current.remaining = 0;
         turnRef.current.audibleRemaining = 0;
         turnRef.current.pausesAhead = [];
+        turnRef.current.startsIn = Infinity;
+        startsAt = null;
       }
     }
     onState(avatarSpeaking || level > 0.02 ? "speaking" : "listening");
@@ -296,5 +390,10 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     onState("stopped");
   };
 
-  return { stop };
+  const clipEnded = () => {
+    clipBusy = false;
+    busyUntil = performance.now() / 1000 + 0.8; // ovoz aks-sadosi mikrofonga tushmasin
+  };
+
+  return { stop, clipEnded };
 }

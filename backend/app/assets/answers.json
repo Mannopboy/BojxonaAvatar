@@ -1,0 +1,12 @@
+[
+ {
+  "id": "airport",
+  "when": "xalqaro aeroport (samolyot) orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "text": "Xalqaro aeroport orqali bir ming AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
+ },
+ {
+  "id": "rail",
+  "when": "temir yo'l (poyezd) orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "text": "Temir yo'l o'tkazish punktlari orqali besh yuz AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
+ }
+]

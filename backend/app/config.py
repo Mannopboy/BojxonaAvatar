@@ -20,12 +20,17 @@ class Settings(BaseSettings):
     # "live" — Gemini Live (yuqoridagi model). Foydalanuvchi 2026-11-10 da TTS ovozini tanladi (Live ovozida talaffuz xatolari bor edi).
     voice_engine: str = "tts"
     gemini_tts_model: str = "gemini-3.8-flash-tts"
+    # Asosiy TTS modelining kunlik kvotasi (Tier 1: kuniga 100 so'rov) tugasa — shu model (alohida kvota). Ikkalasi ham tugasa yangi suhbatlar Gemini Live'ga o'tadi.
+    gemini_tts_fallback_model: str = "gemini-3.8-flash-lite-tts"
+    tts_live_fallback: bool = True  # ikkala TTS modeli kvotasi tugasa — matnni Gemini Live o'qib beradi (tayyor javob kliplari ishlashda davom etadi)
     gemini_chat_model: str = ""  # bo'sh bo'lsa gemini_text_model ishlatiladi
     # TTS barqarorligi: standart haroratda (1.0) bir xil matn har chaqiruvda turlicha o'qiladi (o'lchangan: tezlik ±0.65 s / 7 s, balandlik ±30%, ohang ±4%) — suhbat
     # o'rtasida ovoz "qalinlashib/o'zgarib" qolgandek eshitiladi. Past harorat + qat'iy seed shuni bartaraf etadi (davomiylik ±0.05 s).
     gemini_tts_temperature: float = 0.2
     gemini_tts_seed: int = 7
-    greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman. Sizga qanday yordam bera olaman?"
+    # Salom matni app/assets/greeting.txt bilan bir xil bo'lishi kerak: salom videosi (frontend/public/avatar/greeting.mp4) aynan shu audio (assets/greeting.pcm) bilan yaratilgan —
+    # lab harakati ovozga mos. Boshqa matn qo'yilsa TTS ovozlaydi va video bilan mos kelmaydi.
+    greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman."
 
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005

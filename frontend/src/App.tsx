@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { AvatarVideo } from "./AvatarVideo";
-import { GREETING_SPEECH_START_S } from "./avatarClips";
+import { GREETING_SPEECH_START_S, assetUrl } from "./avatarClips";
 import { newTurnInfo, startLive, type LiveHandle, type LiveState, type TurnInfo } from "./liveAudio";
 import { micErrorMessage } from "./micError";
 
@@ -9,6 +9,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [greetKey, setGreetKey] = useState(0);
   const [greetStart, setGreetStart] = useState(0); // birinchi (salom) audio keldi — salom videosi boshlanadi
+  const [answer, setAnswer] = useState<{ id: string; key: number } | null>(null); // backend tanlagan tayyor javob klipi
   const turnRef = useRef<TurnInfo>(newTurnInfo()); // javob holati (AvatarVideo: jumlalar orasida og'iz yopilib ketmasin, ovoz tugashi oldindan ma'lum)
   const levelRef = useRef(0); // avatar ovozining balandligi — og'iz FAQAT ovoz bor paytda qimirlaydi (AvatarVideo)
   const handleRef = useRef<LiveHandle | null>(null);
@@ -26,6 +27,11 @@ export default function App() {
         onGreetAudio: () => setGreetStart((k) => k + 1),
         greetDelayS: Math.max(0, GREETING_SPEECH_START_S - 0.05), // video ~50 ms keyin boshlanadi
         turnRef,
+        onClip: (id) => setAnswer((a) => ({ id, key: (a?.key ?? 0) + 1 })),
+        onClips: (ids) => {
+          // tayyor javob kliplari oldindan keshga olinadi (savolda darhol boshlansin)
+          for (const id of ids) void fetch(assetUrl(`answers/${id}.mp4`), { cache: "force-cache" }).catch(() => {});
+        },
         onError: (msg) => {
           setError(msg);
           setState("error");
@@ -43,6 +49,7 @@ export default function App() {
     handleRef.current = null;
     levelRef.current = 0;
     turnRef.current = newTurnInfo();
+    setAnswer(null);
     setState("idle");
   }
 
@@ -69,7 +76,7 @@ export default function App() {
       </header>
 
       <div className="scene">
-        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} turnRef={turnRef} />
+        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} turnRef={turnRef} answer={answer} onAnswerEnd={() => handleRef.current?.clipEnded()} />
         {status && <div className="status">{status}</div>}
       </div>
 

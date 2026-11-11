@@ -5,12 +5,14 @@ Kalit faqat backendda. Grounding: system instruction + google_search (ADR-004/00
 """
 import asyncio
 import json
+import os
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 
 from .config import get_settings
+from .tts_voice import ASSETS
 
 settings = get_settings()
 router = APIRouter()
@@ -45,12 +47,23 @@ SYSTEM_INSTRUCTION = (
 )
 
 
-def _config() -> types.LiveConnectConfig:
+_GREET_RULE_START = "MUHIM: eng BIRINCHI javobingda aynan shunday salomlash"
+
+
+def _instruction(no_greet: bool) -> str:
+    """Tayyor salom (video bilan mos) ijro etilgan bo'lsa — model salomlashmaydi va tanishtirmaydi."""
+    if not no_greet:
+        return SYSTEM_INSTRUCTION
+    i = SYSTEM_INSTRUCTION.index(_GREET_RULE_START)
+    return SYSTEM_INSTRUCTION[:i] + "MUHIM: salomlashish va tanishtirish allaqachon aytilgan — QAYTA SALOMLASHMA va o'zingni tanishtirma, to'g'ridan-to'g'ri yo'lovchi savoliga javob ber."
+
+
+def _config(no_greet: bool = False) -> types.LiveConnectConfig:
     # ⚠️ Native audio model tool (google_search/function) bilan audio o'rniga TEXT qaytaradi —
     # shuning uchun tabiiy ovoz uchun tool ishlatilmaydi; aniqlik system prompt fakt­lariga tayanadi.
     kwargs: dict = dict(
         response_modalities=["AUDIO"],
-        system_instruction=SYSTEM_INSTRUCTION,
+        system_instruction=_instruction(no_greet),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
@@ -100,7 +113,8 @@ async def ws_live(ws: WebSocket):
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:
-        async with client.aio.live.connect(model=LIVE_MODEL, config=_config()) as session:
+        static_greet = settings.live_greeting and os.path.exists(os.path.join(ASSETS, "greeting.pcm"))
+        async with client.aio.live.connect(model=LIVE_MODEL, config=_config(static_greet)) as session:
             await ws.send_text(json.dumps({"type": "ready"}))
 
             async def forward_response():
@@ -126,7 +140,14 @@ async def ws_live(ws: WebSocket):
             # Buning o'rniga model system prompt bo'yicha BIRINCHI javobda o'zini tanishtiradi.
 
             # Boshlanishda avatar o'zi salomlashadi (frontend shu paytda 'Salute' o'ynaydi)
-            if settings.live_greeting:
+            if static_greet:
+                # tayyor salom: salom videosi aynan shu audio bilan yaratilgan (lab harakati mos), Live chaqirilmaydi — ovoz tez va bir xil chiqadi
+                await ws.send_text(json.dumps({"type": "transcript", "text": settings.greeting_text}))
+                pcm = open(os.path.join(ASSETS, "greeting.pcm"), "rb").read()
+                for i in range(0, len(pcm), 24000):
+                    await ws.send_bytes(pcm[i:i + 24000])
+                await ws.send_text(json.dumps({"type": "turn_complete"}))
+            elif settings.live_greeting:
                 if MANUAL_ACTIVITY:
                     await session.send_realtime_input(activity_start=types.ActivityStart())
                 await session.send_realtime_input(text="Suhbat boshlandi. Yo'lovchini salomlashib kutib ol.")
