@@ -36,7 +36,7 @@ const REAL_S = Number(process.env.REAL_S || 120);
 const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 6, captureGapMs: 100 };
 
 // Kadr koordinatalari (1080x1920 asl kadrda) — hudud: [x0, y0, x1, y1]
-const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
+const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], mouth: [495, 288, 585, 332], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
 
 const server = process.env.TARGET ? null : await preview({ root: FRONT, logLevel: "error", preview: { port: 4177, strictPort: true, host: "127.0.0.1" } });
 const URL0 = process.env.TARGET || "http://127.0.0.1:4177/";
@@ -258,6 +258,45 @@ try {
     const rel = (t) => ((t - clicks[0]) / 1000).toFixed(1);
     console.log("ketma-ketlik: " + [...allEvents.filter((e) => !e.type.includes("loop")).map((e) => [e.t, e.type]), ...DBG.filter((e) => ["exit", "exit-fallback", "pausehold"].includes(e.ev)).map((e) => [ORIGIN + e.at, "[" + e.ev + (e.sw ? "+almashdi" : "") + "]"])].sort((x, y) => x[0] - y[0]).map(([t, n]) => rel(t) + " " + n).join("; "));
     console.log(`haqiqiy suhbat: tayyor javob klipi ${allEvents.filter((e) => e.type === "idle → answer").length} ta, erkin javob ${allEvents.filter((e) => e.type === "idle → speaking").length} ta | gap oxiri: ovozga to'g'rilangan ${ex.length}, kutib chiqilgan ${fb.length}${fb.length ? ` (eng uzun kutish ${Math.round(Math.max(...fb.map((e) => e.waited)))} ms, yopiq kadrda ${fb.filter((e) => e.hold).length})` : ""} | pauzada to'xtash ${DBG.filter((e) => e.ev === "pausehold").length} (shundan variant almashdi ${DBG.filter((e) => e.ev === "pausehold" && e.sw).length})${errs.length ? ` | XATO: ${errs.length}` : ""}`);
+  }
+  if (REAL) {
+    // OG'IZ vs OVOZ: har ovoz boshlanishi (jimlikdan keyin) — og'iz ekranda qachon ko'rinib ochila boshlaydi. Ovoz vaqti = analizator vaqti + qurilma kechikishi (eshitilgan payt).
+    // Og'iz ochilishi = og'iz hududi (lablar) o'rtacha yorqinligi ochilishdan oldingi (yopiq-og'iz) holatiga nisbatan MOUTH_DROP kul darajaga tushgan birinchi yozuv kadri.
+    // Musbat = og'iz ovozdan KECH, manfiy = OLDIN. Ekran yozuvi kadr tashlagan (>70 ms) oynalar o'lchanmaydi (ularda og'iz qachon ochilgani noma'lum).
+    const rel = (t) => ((t - clicks[0]) / 1000).toFixed(1);
+    const lv = DBG.filter((e) => e.ev === "lvl").map((e) => ({ t: ORIGIN + e.at, l: e.l, ol: (e.ol || 0) * 1000 }));
+    if (lv.length && dec.length > 10) {
+      const Lm = dec.map((f) => ({ t: f.t, m: f.mouth.reduce((x, y) => x + y, 0) / f.mouth.length }));
+      const DROP = Number(process.env.MOUTH_DROP || 3);
+      const onsets = [];
+      let lastLoud = -1e9;
+      for (const s of lv) {
+        if (s.l > 0.04 && s.t - lastLoud > 220) onsets.push({ t: s.t + s.ol, gap: s.t - lastLoud, ol: s.ol });
+        if (s.l > 0.02) lastLoud = s.t;
+      }
+      const lags = { turn: [], pause: [] };
+      const lines = [];
+      let skipped = 0;
+      for (const o of onsets) {
+        const win = Lm.filter((x) => x.t >= o.t - 500 && x.t <= o.t + 800);
+        let holes = false;
+        for (let i = 1; i < win.length; i++) if (win[i].t >= o.t - 300 && win[i - 1].t <= o.t + 400 && win[i].t - win[i - 1].t > 70) holes = true;
+        const base = win.filter((x) => x.t >= o.t - 500 && x.t <= o.t - 330).map((x) => x.m);
+        if (win.length < 12 || holes || base.length < 3) { skipped++; continue; }
+        const Lb = [...base].sort((x, y) => x - y)[base.length >> 1];
+        if (Math.max(...base) - Math.min(...base) > 2.5) { skipped++; continue; } // og'iz ovozdan oldin allaqachon harakatda (oldingi gap/klip) — o'lchanmaydi
+        let openAt = null;
+        for (let i = 0; i + 1 < win.length; i++) if (win[i].t >= o.t - 330 && win[i].m < Lb - DROP && win[i + 1].m < Lb - DROP) { openAt = win[i].t; break; }
+        const kind = o.gap > 1500 ? "turn" : "pause";
+        const lag = openAt === null ? null : openAt - o.t;
+        if (lag !== null) lags[kind].push(lag);
+        lines.push(`${rel(o.t)}s ${kind === "turn" ? "gap boshi     " : "pauzadan keyin"} ${lag === null ? "og'iz ochilmadi" : `og'iz ${lag >= 0 ? "KECH" : "erta"} ${Math.abs(Math.round(lag))} ms`}`);
+        if (process.env.LIPDUMP) console.log("   " + rel(o.t) + "s (baza " + Lb.toFixed(1) + "): " + win.filter((x) => x.t >= o.t - 350 && x.t <= o.t + 500).map((x) => `${Math.round(x.t - o.t)}:${(x.m - Lb).toFixed(1)}`).join(" "));
+      }
+      const med = (a) => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : NaN);
+      console.log(`OG'IZ vs OVOZ (ochilish ${DROP} daraja): gap boshi ${lags.turn.length} ta, mediana ${Math.round(med(lags.turn))} ms, eng kech ${lags.turn.length ? Math.round(Math.max(...lags.turn)) : "-"} ms | pauzadan keyin ${lags.pause.length} ta, mediana ${Math.round(med(lags.pause))} ms, eng kech ${lags.pause.length ? Math.round(Math.max(...lags.pause)) : "-"} ms | o'lchanmagan ${skipped}`);
+      if (process.env.VERBOSE || process.env.LIPDUMP) lines.forEach((l) => console.log("   " + l));
+    }
   }
   console.log(`\nJAMI: ${Object.keys(rows).length} tur, ${allEvents.length} o'tish, o'tmagan tur/tekshiruv: ${bad}`);
   process.exitCode = bad ? 1 : 0;

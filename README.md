@@ -114,6 +114,10 @@ almashinuvi seziladi). Salom yaxshi ko'rinadi, chunki uning videosi O'Z audiosi 
   Pleyer keyingi pauzaga ≤ 4 s qolganda klipning ushlab turish kadrini pauza boshiga to'g'rilaydi (tezlik 0.7–1.4), pauzada klip to'xtab turadi (og'iz yopiq), pauza tugagach davom etadi.
   Keyingi variantga ham aynan pauzada o'tiladi (juftlik bo'yicha kadr-mos nuqta, bo'lmasa B ning tasodifiy yopiq kadriga). Ixtiyoriy joyda yopiq oynada almashish O'CHIRILGAN
   (`GRAPH_SWITCH_ANYWHERE`): uzun javobda har ~6 s da og'iz ~0.3 s yopilib qolardi, ovoz esa uzluksiz davom etardi. Pauza bo'lmasa — klip oxirgi yopiq oynasida keyingisiga o'tadi.
+- **Og'iz ovozdan kech qolmasligi uchun video OLDINDAN boshlanadi** (erkin javoblar): klip kirishi (ijro ~40 ms + lablar klipning birinchi ~0.1 s ida ochiladi + yuz qatlami 200 ms da xira bo'lib chiqadi)
+  tufayli og'iz klip boshlanishidan ~0.15–0.25 s keyin ko'rinadi. Shuning uchun gap boshida klip ovozdan `VIDEO_LEAD_S` (0.2 s, `liveAudio.ts`) oldin boshlanadi (`TurnInfo.startsIn`; audio boshidagi
+  jimlik yetmasa ovoz shuncha kechiktiriladi), pauzadan keyin to'xtab turgan klip pauza tugashidan `RESUME_LEAD_S` (0.14 s) oldin davom etadi. Rasm ovozdan biroz oldin bo'lsa ko'z sezmaydi,
+  ovoz rasmdan oldin bo'lsa ~45 ms dan sezila boshlaydi. Salom videosida bu `greetDelayS` bilan hal qilingan (og'iz ovozdan ~12 ms oldin).
 - **Keyingi hodisaga qarab klip tanlash** (erkin javoblar): pleyer har doim «keyingi hodisa»gacha (keyingi ovoz pauzasi yoki ovoz oxiri) qancha vaqt qolganini biladi va shu vaqtda
   lablar yopiq kadr keladigan klip/joyni tanlaydi: (1) KIRISHDA ikki tayyor buferdan mos kadri bori boshlanadi (`liveAudio` TTS audiosi to'liq kelishini 1.2 s gacha kutadi — qisqa javobda
   uzunlik kirish paytidayoq ma'lum); (2) PAUZADA keyingi klipning shunday yopiq kadriga (u) o'tiladiki, D soniyadan keyin yana yopiq kadr (h) kelsin; (3) KLIP OXIRIDA ovoz tugashi yaqin

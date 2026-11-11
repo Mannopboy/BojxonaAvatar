@@ -15,8 +15,17 @@ export interface TurnInfo {
   audibleRemaining: number;
   /** kelgusi ovoz pauzalari (>= 0.2 s jim, ichida/oldinda): in — pauza boshlanishiga soniya (<= 0: pauza davom etyapti), len — pauza uzunligi */
   pausesAhead: { in: number; len: number }[];
+  /** javobning birinchi eshitiladigan tovushiga shuncha soniya qoldi (qurilma kechikishi bilan); Infinity — rejalanmagan yoki boshlanib bo'lgan. Avatar og'zi shundan ~VIDEO_LEAD_S oldin qimirlay boshlaydi */
+  startsIn: number;
 }
-export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0, pausesAhead: [] });
+export const newTurnInfo = (): TurnInfo => ({ active: false, done: false, remaining: 0, audibleRemaining: 0, pausesAhead: [], startsIn: Infinity });
+
+/**
+ * Gapirish klipi ovozdan shuncha OLDIN boshlanadi: klip kirishi (ijro ishga tushishi ~40 ms + lablar klipning birinchi ~0.1 s ida ochiladi + yuz qatlami 200 ms da xira bo'lib chiqadi)
+ * tufayli og'iz ekranda klip boshlanishidan ~0.15–0.25 s keyin ko'rinadi (klip ovoz bilan birga boshlansa og'iz ovozdan KECH qolgan). Rasm ovozdan biroz OLDIN bo'lsa ko'z sezmaydi
+ * (ovoz rasmdan oldin bo'lsa ~45 ms dan sezila boshlaydi). Salom videosida bu allaqachon hisobga olingan (greetDelayS).
+ */
+export const VIDEO_LEAD_S = 0.2;
 
 export interface LiveHandle {
   stop: () => void;
@@ -79,6 +88,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let silStart: number | null = null;
   let seenSound = false;
   let audibleEnd = 0; // AudioContext vaqtida: oxirgi eshitiladigan tovush tugaydigan payt (jimlik hisobga olinmaydi)
+  let startsAt: number | null = null; // AudioContext vaqtida: joriy javobning birinchi eshitiladigan tovushi (TurnInfo.startsIn uchun)
 
   function enqueue(int16: Int16Array) {
     const f32 = new Float32Array(int16.length);
@@ -135,10 +145,25 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     pend = [];
     pendDur = 0;
     turnPlaying = false;
+    startsAt = null;
     window.clearTimeout(pendTimer);
     pauses.length = 0;
     silStart = null;
     seenSound = false;
+  }
+
+  /** Kelgan (hali chalinmagan) audioning bosh jimligi (soniya): birinchi eshitiladigan blokgacha (10 ms, RMS >= 0.012, audibleEnd bilan bir xil chegara). */
+  function leadingSilence(chunks: Int16Array[]): number {
+    let blocks = 0;
+    for (const c of chunks) {
+      for (let b = 0; b + 240 <= c.length; b += 240) {
+        let sq = 0;
+        for (let i = b; i < b + 240; i++) sq += (c[i] / 32768) * (c[i] / 32768);
+        if (Math.sqrt(sq / 240) >= 0.012) return (blocks * 240) / 24000 / PLAY_RATE;
+        blocks++;
+      }
+    }
+    return 0;
   }
 
   function startTurnPlayback() {
@@ -150,7 +175,12 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
       nextTime = playCtx.currentTime + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
       onGreetAudio?.();
       (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
-    } else nextTime = playCtx.currentTime + 0.05;
+    } else {
+      // javob ovozi: bosh jimlik (TTS audiosida odatda bor) video oldindan boshlanishiga yetadi, yetmasa ovoz shuncha kechiktiriladi — og'iz ovoz bilan birga ochiladi
+      const lead = leadingSilence(pend);
+      nextTime = playCtx.currentTime + Math.max(0.05, VIDEO_LEAD_S + 0.03 - lead);
+      startsAt = nextTime + lead;
+    }
     const q = pend;
     pend = [];
     pendDur = 0;
@@ -306,6 +336,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const rms = Math.sqrt(sum / timeBuf.length);
     const level = Math.min(1, rms * 3.2); // kuchaytirish
     onLevel(level);
+    const dbgLvl = (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg;
+    if (dbgLvl) dbgLvl.push({ ev: "lvl", at: performance.now(), l: level, ol: playCtx.outputLatency || 0 }); // sinov: ovoz boshlanishi vs og'iz ochilishi
     avatarSpeaking = sources.length > 0 || pend.length > 0 || clipBusy;
     if (turnRef?.current.active) {
       const t = performance.now() / 1000;
@@ -313,6 +345,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
       const outLat = Math.min(0.25, playCtx.outputLatency || playCtx.baseLatency || 0); // eshitilgan payt = rejalangan payt + qurilma kechikishi
       turnRef.current.audibleRemaining = Math.max(0, audibleEnd + outLat - playCtx.currentTime);
       const ct = playCtx.currentTime;
+      if (startsAt !== null && ct > startsAt + outLat + 0.5) startsAt = null; // ovoz boshlanib bo'ldi: keyingisini balandlik (level) boshqaradi
+      turnRef.current.startsIn = startsAt === null ? Infinity : startsAt + outLat - ct;
       while (pauses.length && pauses[0].end + outLat < ct - 1) pauses.shift();
       turnRef.current.pausesAhead = pauses.filter((p) => p.end + outLat > ct).slice(0, 6).map((p) => ({ in: p.start + outLat - ct, len: p.end - p.start }));
       const drained = sources.length === 0 && pend.length === 0 && nextTime <= playCtx.currentTime; // hamma kelgan audio chalib bo'lindi
@@ -323,6 +357,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         turnRef.current.remaining = 0;
         turnRef.current.audibleRemaining = 0;
         turnRef.current.pausesAhead = [];
+        turnRef.current.startsIn = Infinity;
+        startsAt = null;
       }
     }
     onState(avatarSpeaking || level > 0.02 ? "speaking" : "listening");

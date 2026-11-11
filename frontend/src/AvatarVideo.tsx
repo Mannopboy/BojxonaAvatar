@@ -15,7 +15,7 @@
 //  - Chiqish: gapirishdan kutishga FAQAT og'iz yopiq va bosh kutish o'rnida bo'lgan oraliqlarda (avatarClips.json); salom oxirida uy kadri.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { FRAME_H, FRAME_W, SPEAKING_VARIANTS, assetUrl, isExitTime, isHoldTime, pickLinked, pickTransition, pickVariant, planExit, transitionsFor, PLAN_MAX_RATE, PLAN_MIN_RATE } from "./avatarClips";
-import type { TurnInfo } from "./liveAudio";
+import { VIDEO_LEAD_S, type TurnInfo } from "./liveAudio";
 
 type Layer = "idle" | "a" | "b"; // idle; a/b — gapirish uchun ikki bufer (biri ijro etiladi, ikkinchisi keyingi variant bilan tayyor)
 const LAYERS: readonly Layer[] = ["idle", "a", "b"];
@@ -56,6 +56,8 @@ const MIN_TRACK_RATE = 0.4; // ovoz tugashiga qarab sozlashda (kuzatish) tezlik 
 const MAX_TRACK_RATE = 2.5;
 const HOLD_MAX_S = 0.12; // lablar yopiq kadrda kutish: ovoz tugashiga shundan ko'p qolgan bo'lsa klip TO'XTATILMAYDI (ovoz gapirayotganda video qotmasin)
 const END_LEAD_S = 0.05; // lablar yopiq kadrga oxirgi tovushdan ~50 ms OLDIN yetadi (kadr/rAF kechikishi hisobiga), qolgan vaqt shu kadrda kutadi
+// Pauzada to'xtab turgan klip ovoz qaytishidan shuncha OLDIN davom ettiriladi: play() ~40 ms + lablar yopiq kadrdan ~0.1 s da ochiladi (o'lchangan) — aks holda og'iz ovozdan kech ochiladi
+const RESUME_LEAD_S = 0.14;
 const VOICE_HOLD_TURN_MS = 1500; // javob davomida (turn tugamagan): jumlalar orasidagi pauza shu vaqtgacha gapirishni uzmaydi
 const VOICE_HOLD_MS = 170; // shuncha jim bo'lsa og'iz yopiladi: so'zlar orasidagi qisqa tushishda gapirish↔kutish miltillamasin
 const CHAIN_LEAD_S = 0.2; // variant tugashiga shuncha qolganda keyingisi boshlanadi (ikkalasi uy kadrida)
@@ -330,7 +332,8 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
     let lastVoice = -1e9;
     const tick = () => {
       const now = performance.now();
-      if (levelRef.current > VOICE_ON) lastVoice = now;
+      // Javob ovozi eshitilishiga VIDEO_LEAD_S qolganda klip boshlanadi (klip kirishi ~0.25 s: og'iz ovoz bilan birga ochilsin); keyin ovozning o'zi (balandlik) boshqaradi
+      if (levelRef.current > VOICE_ON || (turnRef.current.active && turnRef.current.startsIn <= VIDEO_LEAD_S)) lastVoice = now;
       const voice = now - lastVoice < (turnRef.current.active ? VOICE_HOLD_TURN_MS : VOICE_HOLD_MS);
       if (voice !== voiceRef.current) {
         voiceRef.current = voice;
@@ -439,12 +442,12 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
           }
           // 1b) OVOZ PAUZALARI: og'iz yopiladigan kadr haqiqiy pauzaga to'g'rilanadi, pauzada klip to'xtab turadi (og'iz yopiq), keyingi variantga ham aynan pauzada o'tiladi.
           //     Shunda og'iz faqat ovozda pauza bo'lganda yopiladi (gap oqib turganda — hech qachon).
-          const nextPause = turn.pausesAhead.find((p) => p.in + p.len > 0.03);
+          const nextPause = turn.pausesAhead.find((p) => p.in + p.len > RESUME_LEAD_S); // oxirgi RESUME_LEAD_S da pauza tugagan hisoblanadi: klip davom etadi va shu pauza qayta rejalanmaydi
           const pp = pausePlan.current;
           if (pp && pp.layer !== s.cur && !pp.sw) pausePlan.current = null;
           if (pausePlan.current && pausePlan.current.hold) {
             const hp = pausePlan.current;
-            if (!nextPause || nextPause.in > 0.05 || nextPause.in + nextPause.len <= 0.02 || now - hp.since > 4000) {
+            if (!nextPause || nextPause.in > 0.05 || nextPause.in + nextPause.len <= RESUME_LEAD_S || now - hp.since > 4000) {
               // pauza tugadi (yoki xavfsizlik): ijro davom etadi
               (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "pauseresume", at: now });
               pausePlan.current = null;
@@ -461,7 +464,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
                 const pi = turn.pausesAhead.indexOf(nextPause);
                 const after = pi >= 0 ? turn.pausesAhead[pi + 1] : undefined;
                 const pauseEnd = nextPause.in + nextPause.len;
-                const D = after ? after.in - pauseEnd : turn.done ? turn.audibleRemaining - pauseEnd - END_LEAD_S : NaN;
+                const D = (after ? after.in - pauseEnd : turn.done ? turn.audibleRemaining - pauseEnd - END_LEAD_S : NaN) + RESUME_LEAD_S; // klip pauza tugashidan RESUME_LEAD_S oldin davom etadi
                 const fitFrom = (holds: readonly number[], from: number) => {
                   let best = Infinity;
                   if (!(D > 0.3)) return best;
