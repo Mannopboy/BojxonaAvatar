@@ -47,17 +47,23 @@ export interface LiveOpts {
   onClip?: (id: string) => void;
   /** suhbat boshida: mavjud tayyor javob kliplari (oldindan yuklash uchun) */
   onClips?: (ids: string[]) => void;
+  /** KUTISH REJIMIDAN: yo'lovchining birinchi gapi (16 kHz PCM16) — salom darrov berilmaydi, backend shu gapga qarab suhbatni boshlaydi (salom bo'lsa salomlashadi) */
+  wake?: Int16Array;
+  /** backend tayyor salomni (video + audio) ijro etishini aytdi — salom videosi kutiladi */
+  onGreeting?: () => void;
+  /** wake rejimida birinchi gap salom ham savol ham emas (shovqin) — suhbat boshlanmaydi */
+  onWakeIgnored?: () => void;
 }
 
 const PLAY_RATE = 1; // ijro tezligi (1 = asl)
 
-function wsUrl(): string {
+function wsUrl(wake: boolean): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/ws/live`;
+  return `${proto}://${location.host}/ws/live${wake ? "?wake=1" : ""}`;
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -81,7 +87,9 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   let pendSince = 0;
   const FAST_WAIT_MS = 1200;
   let clipBusy = false; // tayyor javob klipi ijro etilyapti (mikrofon yopiq)
-  let greeted = false; // birinchi audio keldimi (salom)
+  // birinchi audio keldimi (salom). Wake rejimida salom darrov berilmaydi: backend salom bergan bo'lsagina {"type":"greeting"} yuboradi (shundan keyingi birinchi audio — salom),
+  // aks holda birinchi audio oddiy javob (rus tilida salom, savolga javob)
+  let greeted = !!wake;
   let turnDone = false; // turn_complete keldi (ijro hali davom etayotgan bo'lishi mumkin)
   let lastAudioAt = 0;
   const pauses: { start: number; end: number }[] = []; // AudioContext vaqtida ovoz pauzalari (javob davomida jimlik >= 0.2 s)
@@ -223,7 +231,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   const mute = micCtx.createGain();
   mute.gain.value = 0;
 
-  const ws = new WebSocket(wsUrl());
+  const ws = new WebSocket(wsUrl(!!wake));
   ws.binaryType = "arraybuffer";
 
   // --- Client-side VAD: gapirish boshi/oxirini aniqlab activity_start/end yuboradi ---
@@ -277,7 +285,15 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   mute.connect(micCtx.destination);
 
   ws.onopen = () => {
-    /* ready kutamiz */
+    if (!wake) return; // ready kutamiz
+    // Kutish rejimida ushlangan birinchi gap: oddiy mikrofon gapi kabi (activity_start + PCM16 16 kHz + activity_end) — backend salom/savol/shovqinni aniqlaydi
+    try {
+      ws.send(JSON.stringify({ type: "activity_start" }));
+      for (let i = 0; i < wake.length; i += 4096) ws.send(wake.slice(i, i + 4096).buffer);
+      ws.send(JSON.stringify({ type: "activity_end" }));
+    } catch {
+      /* ulanish uzildi — onclose/onerror hal qiladi */
+    }
   };
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) {
@@ -299,6 +315,11 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         if (m.type === "ready") {
           onState("listening");
           if (Array.isArray(m.clips)) onClips?.(m.clips as string[]);
+        } else if (m.type === "greeting") {
+          greeted = false; // keyingi birinchi audio — tayyor salom (salom videosi, ovoz greetDelayS dan keyin)
+          onGreeting?.();
+        } else if (m.type === "wake_ignored") {
+          onWakeIgnored?.(); // shovqin / salom ham savol ham emas — kutish rejimiga qaytamiz
         } else if (m.type === "clip") {
           clipBusy = true; // klip tugaguncha mikrofon yopiq (clipEnded)
           onClip?.(String(m.id));

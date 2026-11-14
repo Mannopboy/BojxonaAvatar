@@ -92,10 +92,13 @@ async def ws_live(ws: WebSocket):
 
     from .tts_voice import handle, tts_available
 
+    # /ws/live?wake=1: brauzer kutish rejimida (mahalliy VAD) yo'lovchining birinchi gapini ushladi — salom darrov berilmaydi, suhbat yo'lovchi salomlashganda boshlanadi
+    wake = ws.query_params.get("wake") == "1"
+
     if settings.voice_engine == "tts" and tts_available():  # Gemini matn modeli + Gemini TTS (gemini-3.8-flash-tts) — tts_voice.py; kvota tugagan bo'lsa Gemini Live'ga o'tadi
 
         try:
-            await handle(ws)
+            await handle(ws, wake=wake)
         except WebSocketDisconnect:
             pass
         except Exception as e:  # noqa: BLE001
@@ -113,9 +116,9 @@ async def ws_live(ws: WebSocket):
     client = genai.Client(api_key=settings.gemini_api_key)
 
     try:
-        static_greet = settings.live_greeting and os.path.exists(os.path.join(ASSETS, "greeting.pcm"))
+        static_greet = settings.live_greeting and not wake and os.path.exists(os.path.join(ASSETS, "greeting.pcm"))
         async with client.aio.live.connect(model=LIVE_MODEL, config=_config(static_greet)) as session:
-            await ws.send_text(json.dumps({"type": "ready"}))
+            await ws.send_text(json.dumps({"type": "ready", "wake": wake}))
 
             async def forward_response():
                 """Gemini javobini turn_complete gacha o'qib clientga uzatadi (HALF-DUPLEX).
@@ -147,7 +150,7 @@ async def ws_live(ws: WebSocket):
                 for i in range(0, len(pcm), 24000):
                     await ws.send_bytes(pcm[i:i + 24000])
                 await ws.send_text(json.dumps({"type": "turn_complete"}))
-            elif settings.live_greeting:
+            elif settings.live_greeting and not wake:  # wake: Live birinchi javobida o'zi salomlashadi (system prompt qoidasi)
                 if MANUAL_ACTIVITY:
                     await session.send_realtime_input(activity_start=types.ActivityStart())
                 await session.send_realtime_input(text="Suhbat boshlandi. Yo'lovchini salomlashib kutib ol.")

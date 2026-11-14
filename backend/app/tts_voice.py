@@ -313,69 +313,183 @@ async def _llm_answer(contents: list) -> tuple[str | None, str]:
     return None, clean_for_speech(str(j.get("text") or ""))[:900]
 
 
+WAKE_KINDS = ("greeting", "question", "other")
+WAKE_LANGS = ("uz", "ru", "en")
+# Birinchi gapni tez tasniflash uchun KICHIK prompt (to'liq TTS_SYSTEM + faktlar bilan chaqiruv 4-9 s, bu — ~2 s; o'lchangan)
+WAKE_CLASSIFY = (
+    "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar oldiga kelib BIRINCHI marta gapirdi. Faqat JSON qaytar. "
+    "kind: 'greeting' — yo'lovchi FAQAT salomlashdi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
+    "'qalaysiz' kabi qo'shimcha ham bo'lishi mumkin); 'question' — savol yoki so'rov berdi (salomlashib boshlagan bo'lsa ham); "
+    "'other' — gapirish emas (shovqin, yo'tal, musiqa, jimlik), mazmuni noaniq yoki kioskka aloqasi yo'q (telefonda yoki boshqa odam bilan gaplashyapti). "
+    "lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
+)
+GREETING_OTHER = {
+    "ru": "Здравствуйте! Я виртуальный сотрудник Государственного таможенного комитета. Чем могу вам помочь?",
+    "en": "Hello! I am the virtual officer of the State Customs Committee. How can I help you?",
+}
+
+
+def parse_wake(j: object) -> tuple[str, str]:
+    """LLM JSON javobini (kind, lang) ga keltiradi. Noma'lum/buzuq qiymat xavfsiz tomonga: kind aniq bo'lmasa — 'other' (e'tiborsiz), til — 'uz'."""
+    d = j if isinstance(j, dict) else {}
+    kind = d.get("kind") if d.get("kind") in WAKE_KINDS else "other"
+    lang = d.get("lang") if d.get("lang") in WAKE_LANGS else "uz"
+    return kind, lang
+
+
+async def _llm_classify(user_part: types.Part) -> tuple[str, str]:
+    """Birinchi gap: (kind, lang). Kichik prompt va 2 maydonli javob — tez (~2 s)."""
+    model = settings.gemini_chat_model or settings.gemini_text_model
+    kwargs: dict = dict(system_instruction=WAKE_CLASSIFY, temperature=0.0, max_output_tokens=60, response_mime_type="application/json")
+    kwargs["response_schema"] = {
+        "type": "OBJECT",
+        "properties": {"kind": {"type": "STRING", "enum": list(WAKE_KINDS)}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
+        "required": ["kind", "lang"],
+    }
+    if "2.5" in model:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[user_part])], config=types.GenerateContentConfig(**kwargs))
+    try:
+        return parse_wake(json.loads(r.text or "{}"))
+    except ValueError:
+        return parse_wake({})
+
+
+async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.Part, history: list, state: dict) -> None:
+    """Javobni brauzerga yetkazadi: tayyor klip (TTS yo'q) yoki matnni bitta TTS oqimi bilan (birinchi bo'lak ~0.2 s, qolganlari ~0.5 s). state['spoke'] — audio yuborildimi."""
+    if clip:
+        # tayyor javob: brauzer o'z ovozi bilan yozilgan videoni ijro etadi (lab harakati ovozga mos), TTS chaqirilmaydi
+        await ws.send_text(json.dumps({"type": "transcript", "text": text}))
+        await ws.send_text(json.dumps({"type": "clip", "id": clip}))
+        history.append(types.Content(role="user", parts=[user_part]))
+        history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+        state["spoke"] = True
+        return
+    if text:
+        await ws.send_text(json.dumps({"type": "transcript", "text": text}))
+        piece = bytearray()
+        limit = FIRST_PIECE_BYTES
+        async for ch in synth_stream(text):
+            piece.extend(ch)
+            if len(piece) >= limit:
+                n = len(piece) // 2 * 2
+                await ws.send_bytes(bytes(piece[:n]))
+                state["spoke"] = True
+                piece = bytearray(piece[n:])
+                limit = PIECE_BYTES
+        if piece:
+            await ws.send_bytes(bytes(piece[: len(piece) // 2 * 2]))
+            state["spoke"] = True
+    if not state["spoke"] and not tts_available():
+        await ws.send_text(json.dumps({"type": "error", "msg": "Ovoz xizmati vaqtincha band. Suhbatni qaytadan boshlang."}))
+    elif not state["spoke"]:
+        await _say_cached(ws, FALLBACK_TEXT)
+    else:
+        history.append(types.Content(role="user", parts=[user_part]))
+        history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+
+
 async def respond(ws: WebSocket, user_part: types.Part, history: list) -> None:
-    """Bitta javob: LLM matni -> bitta TTS oqimi -> brauzerga (birinchi bo'lak ~0.2 s, qolganlari ~0.5 s)."""
+    """Bitta javob: LLM matni -> bitta TTS oqimi -> brauzerga."""
     contents = history[-HISTORY_TURNS * 2:] + [types.Content(role="user", parts=[user_part])]
-    spoke = False
+    state = {"spoke": False}
     try:
         clip, text = await _llm_answer(contents)
-        if clip:
-            # tayyor javob: brauzer o'z ovozi bilan yozilgan videoni ijro etadi (lab harakati ovozga mos), TTS chaqirilmaydi
-            await ws.send_text(json.dumps({"type": "transcript", "text": text}))
-            await ws.send_text(json.dumps({"type": "clip", "id": clip}))
-            history.append(types.Content(role="user", parts=[user_part]))
-            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
-            return
-        if text:
-            await ws.send_text(json.dumps({"type": "transcript", "text": text}))
-            piece = bytearray()
-            limit = FIRST_PIECE_BYTES
-            async for ch in synth_stream(text):
-                piece.extend(ch)
-                if len(piece) >= limit:
-                    n = len(piece) // 2 * 2
-                    await ws.send_bytes(bytes(piece[:n]))
-                    spoke = True
-                    piece = bytearray(piece[n:])
-                    limit = PIECE_BYTES
-            if piece:
-                await ws.send_bytes(bytes(piece[: len(piece) // 2 * 2]))
-                spoke = True
-        if not spoke and not tts_available():
-            await ws.send_text(json.dumps({"type": "error", "msg": "Ovoz xizmati vaqtincha band. Suhbatni qaytadan boshlang."}))
-        elif not spoke:
-            await _say_cached(ws, FALLBACK_TEXT)
-        else:
-            history.append(types.Content(role="user", parts=[user_part]))
-            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+        await _deliver(ws, clip, text, user_part, history, state)
     except WebSocketDisconnect:
         raise
     except Exception as e:  # noqa: BLE001
         log.warning("javob xatosi: %s: %s", type(e).__name__, str(e)[:200])
-        if not spoke:
+        if not state["spoke"]:
             try:
                 await _say_cached(ws, ERROR_TEXT)
             except Exception:  # noqa: BLE001
                 pass
 
 
-async def handle(ws: WebSocket) -> None:
-    """/ws/live (voice_engine=tts): suhbat sikli. Javob vaqtida kelgan mikrofon ma'lumoti tashlanadi (half-duplex)."""
+async def respond_first(ws: WebSocket, user_part: types.Part, history: list) -> bool:
+    """WAKE rejimi: birinchi gap. Salom (o'zbekcha — tayyor salom videosi/audio; boshqa tilda — shu tilda TTS), savol (javob) yoki shovqin (e'tiborsiz).
+    Tasniflash (kichik prompt, ~2 s) va odatdagi javob (to'liq prompt) PARALLEL boshlanadi: salom/shovqin bo'lsa javob bekor qilinadi, savol bo'lsa javob allaqachon yo'lda
+    (savolga javob kechikmaydi). Qaytaradi: True — suhbat boshlandi, False — e'tiborsiz qoldirildi (brauzerga wake_ignored yuborildi)."""
+    contents = [types.Content(role="user", parts=[user_part])]
+    answer = asyncio.create_task(_llm_answer(contents))
+    state = {"spoke": False}
+    try:
+        try:
+            kind, lang = await _llm_classify(user_part)
+        except WebSocketDisconnect:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("wake tasniflash xatosi: %s: %s", type(e).__name__, str(e)[:200])
+            kind, lang = "other", "uz"
+        log.info("wake: kind=%s lang=%s", kind, lang)
+        if kind == "other":
+            answer.cancel()
+            await ws.send_text(json.dumps({"type": "wake_ignored"}))
+            return False
+        if kind == "greeting":
+            answer.cancel()
+            if lang == "uz":
+                # tayyor salom: salom videosi aynan shu audio bilan yaratilgan; brauzer 'greeting' belgisini ko'rgach salom videosini kutadi
+                await ws.send_text(json.dumps({"type": "greeting"}))
+                await _say_cached(ws, settings.greeting_text)
+                greet_text = settings.greeting_text
+            else:
+                greet_text = GREETING_OTHER[lang]
+                await _deliver(ws, None, greet_text, types.Part(text="(yo'lovchi salomlashdi)"), history, state)
+                return True  # tarix _deliver ichida yangilandi
+            history.append(types.Content(role="user", parts=[types.Part(text="(yo'lovchi salomlashdi)")]))
+            history.append(types.Content(role="model", parts=[types.Part(text=greet_text)]))
+            return True
+        clip, text = await answer  # savol: javob parallel tayyorlanayotgan edi
+        await _deliver(ws, clip, text, user_part, history, state)
+        return True
+    except WebSocketDisconnect:
+        raise
+    except asyncio.CancelledError:
+        answer.cancel()
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("wake javob xatosi: %s: %s", type(e).__name__, str(e)[:200])
+        if not state["spoke"]:
+            try:
+                await _say_cached(ws, ERROR_TEXT)
+            except Exception:  # noqa: BLE001
+                pass
+        return True
+    finally:
+        if not answer.done():
+            answer.cancel()
+
+
+async def handle(ws: WebSocket, wake: bool = False) -> None:
+    """/ws/live (voice_engine=tts): suhbat sikli. Javob vaqtida kelgan mikrofon ma'lumoti tashlanadi (half-duplex).
+    wake=True (/ws/live?wake=1): salom darrov berilmaydi — yo'lovchining BIRINCHI gapi (brauzer mahalliy VAD bilan ushlab yuboradi) tinglanadi: salom bo'lsa avatar suhbatni
+    boshlaydi, savol bo'lsa javob beradi, shovqin bo'lsa {"type":"wake_ignored"} (brauzer kutish rejimiga qaytadi)."""
     history: list = []
     pcm = bytearray()
     collecting = False
     task: asyncio.Task | None = None
+    awaiting_wake = wake  # birinchi gap hali qabul qilinmagan
 
     async def run(user_part: types.Part) -> None:
+        nonlocal awaiting_wake
+        started = True
         try:
-            await respond(ws, user_part, history)
+            if awaiting_wake:
+                started = await respond_first(ws, user_part, history)
+                if started:
+                    awaiting_wake = False
+            else:
+                await respond(ws, user_part, history)
         except WebSocketDisconnect:
             return
         finally:
-            try:
-                await ws.send_text(json.dumps({"type": "turn_complete"}))
-            except Exception:  # noqa: BLE001
-                pass
+            if started:
+                try:
+                    await ws.send_text(json.dumps({"type": "turn_complete"}))
+                except Exception:  # noqa: BLE001
+                    pass
 
     async def greet() -> None:
         try:
@@ -386,8 +500,8 @@ async def handle(ws: WebSocket) -> None:
             except Exception:  # noqa: BLE001
                 pass
 
-    await ws.send_text(json.dumps({"type": "ready", "clips": [a["id"] for a in ANSWERS]}))
-    if settings.live_greeting:
+    await ws.send_text(json.dumps({"type": "ready", "clips": [a["id"] for a in ANSWERS], "wake": wake}))
+    if settings.live_greeting and not wake:
         task = asyncio.create_task(greet())
     try:
         while True:
@@ -415,7 +529,7 @@ async def handle(ws: WebSocket) -> None:
                     continue
                 if len(pcm) < MIN_UTTERANCE_S * SAMPLE_RATE_IN * 2:
                     pcm.clear()
-                    await ws.send_text(json.dumps({"type": "turn_complete"}))
+                    await ws.send_text(json.dumps({"type": "wake_ignored" if awaiting_wake else "turn_complete"}))
                     continue
                 part = types.Part.from_bytes(data=_wav(bytes(pcm)), mime_type="audio/wav")
                 pcm.clear()
