@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { FRAME_H, FRAME_W, SPEAKING_VARIANTS, assetUrl, isExitTime, isHoldTime, pickLinked, pickTransition, pickVariant, planExit, transitionsFor, PLAN_MAX_RATE, PLAN_MIN_RATE } from "./avatarClips";
 import { VIDEO_LEAD_S, type TurnInfo } from "./liveAudio";
+import { useAvatarView } from "./useAvatarView";
 
 type Layer = "idle" | "a" | "b"; // idle; a/b — gapirish uchun ikki bufer (biri ijro etiladi, ikkinchisi keyingi variant bilan tayyor)
 const LAYERS: readonly Layer[] = ["idle", "a", "b"];
@@ -117,6 +118,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
   const videos = useRef<Record<Layer | "greeting", HTMLVideoElement | null>>({ idle: null, a: null, b: null, greeting: null });
   const containerRef = useRef<HTMLDivElement>(null);
   const rigRef = useRef<HTMLDivElement>(null);
+  useAvatarView(rigRef); // operator sozlamasi: strelkalar — surish, +/− — zoom (avtomatik saqlanadi)
   const frontRef = useRef<Layer>("idle"); // hozir ko'rinib turgan (ustidagi) klip
   const greetRef = useRef(false);
   const voiceRef = useRef(false);
