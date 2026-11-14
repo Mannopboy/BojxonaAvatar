@@ -134,6 +134,34 @@ almashinuvi seziladi). Salom yaxshi ko'rinadi, chunki uning videosi O'Z audiosi 
 - **Salom**: video birinchi salom audiosi kelishi bilan boshlanadi, audio esa `GREETING_SPEECH_START_S` (`avatarClips.json` → `greeting.speechStart`, hozir 1.54 s) dan 0.05 s oldin
   chalinadi (`liveAudio` `greetDelayS`) — qo'l boshga yetib borgandan keyin ovoz boshlanadi. Salom tugagach ovoz davom etsa `speaking` variantiga o'tadi.
 
+### Salom bilan boshlash (kutish rejimi)
+Tugma bosish shart emas: sahifa ochiq va suhbat boshlanmagan paytda mikrofon **mahalliy** tinglanadi (`src/wakeListener.ts` + `src/wakeVad.ts`; serverga hech narsa yuborilmaydi). Yo'lovchi avatar oldiga kelib
+gapirsa — birinchi gap ajratib olinadi (2 blok > 0.03 RMS bilan boshlanadi, 0.8 s jimlikda tugaydi, ≤ 8 s) va `/ws/live?wake=1` orqali backendga yuboriladi. `tts_voice.respond_first`: bitta kichik LLM chaqiruvi
+(`WAKE_CLASSIFY`, ~2 s) gapni **salom / savol / shovqin** va **tilga** (uz/ru/en) ajratadi; to'liq javob chaqiruvi PARALLEL boshlanadi (savol bo'lsa kutmasdan tayyor, salom/shovqin bo'lsa bekor qilinadi):
+
+| Yo'lovchi gapi | Natija |
+|---|---|
+| o'zbekcha salom («Assalomu alaykum») | `{"type":"greeting"}` + tayyor salom (video + audio, avvalgidek) |
+| ruscha / inglizcha salom («Здравствуйте», «Hello») | shu tilda salom matni (TTS), **salom videosi yo'q** — u o'zbekcha audioga yaratilgan |
+| savol (salomli yoki salomsiz) | odatdagi javob (tayyor klip yoki TTS), qayta salomlashmaydi |
+| shovqin / kioskka aloqasi yo'q gap | `{"type":"wake_ignored"}` — brauzer kutishga qaytadi |
+
+- «Suhbatni boshlash» tugmasi saqlangan (zaxira; u bosilsa kutish to'xtaydi va salom darrov beriladi). «Tugatish» dan keyin yana salom kutiladi. Mikrofon ruxsati `denied` bo'lsa kutish yoqilmaydi; `?manual=1` — kutishni o'chiradi.
+- **Kiosk Chrome**: mikrofon ruxsati oldindan berilgan bo'lsin (doimiy profilda bir marta «Ruxsat» yoki siyosat `AudioCaptureAllowedUrls`), `--autoplay-policy=no-user-gesture-required` tavsiya (ayrim brauzerlarda
+  AudioContext sahifa bosilguncha to'xtab turadi — shunda holat yozuvi «Sahifani bir marta bosing…» deydi).
+- Live zaxira yo'li (`VOICE_ENGINE=live` yoki TTS kvotasi tugagan): wake gapi to'g'ridan-to'g'ri Live'ga beriladi, Live birinchi javobida o'zi salomlashadi; shovqinni filtrlash yo'q.
+- Kechikish gap tugagandan keyin ~2–4 s (Gemini API tezligiga bog'liq; sekin paytlarda 6–8 s o'lchangan).
+
+### Avatarni joyiga moslash (operator sozlamasi)
+Galogramma/ekranga qarab operator avatarni klaviatura bilan joyiga qo'yadi (AI maslahatchi kiosk ilovasidagi usul; faqat shu ikki funksiya — burish, sichqoncha, ekrandagi tugma yo'q):
+`←` `→` `↑` `↓` — surish (har bosishda rig balandligining 2%), `+` `=` Numpad`+` — yaqinlashtirish, `−` `_` Numpad`−` — uzoqlashtirish (har bosishda ×1.08; min 0.4, max 2.5); ushlab turilsa takrorlanadi.
+Surish chegarasi: avatar ekrandan butunlay chiqib ketmaydi. Holat **avtomatik saqlanadi** (oxirgi bosishdan 400 ms keyin, `localStorage` `bojxona.avatarView.v1` = `{v:1,x,y,zoom}`) va ochilganda birinchi kadrdan oldin tiklanadi; buzuq
+qiymat → asl joy. X, Y rig balandligi ulushida saqlanadi — ekran o'lchami o'zgarsa yoki galogramma aylantirilsa nisbat buzilmaydi. Hamma video qatlam bitta `.avatar-rig` ichida: klip almashganda joy sakramaydi.
+Matn maydonida fokus bo'lsa yoki Ctrl/Cmd/Alt bosilgan bo'lsa klavishlar ushlanmaydi. Kod: `src/avatarView.ts` (sof funksiyalar), `src/useAvatarView.ts`.
+- **O'rnatishda**: USB klaviatura ulanadi → strelkalar va `+`/`−` bilan avatar joyiga qo'yiladi → sahifa qayta ochilib saqlangani tekshiriladi → klaviatura uziladi. Saqlash brauzer profilida, shuning uchun
+  kiosk Chrome **doimiy profil** bilan ochilsin (`--user-data-dir=C:\bojxona-kiosk-profile`), `--incognito`/`--guest` **emas** — aks holda qayta yoqilganda joy yo'qoladi. Desktop o'ram (Electron/WebView) ishlatilsa — sahifa
+  startda fokus olishi kerak, aks holda klavishlar ekranni bosgandan keyingina ishlaydi.
+
 ### Videolarni qayta tayyorlash (yangi xodim yoki yangi klip)
 Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build_assets.py`, `align.py`, `exits.py`; Python + OpenCV + numpy + ffmpeg).
 1. Higgsfield: uy kadri (qora fon) + audio ko'rsatma (gap iboralari orasida ~0.5 s jim) → klip (`GENERATE.md`: prompt va qabul mezonlari: ifoda mo'tadil, ko'z qisish/tabassum yo'q,
@@ -155,6 +183,12 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
 
 ### Sinov
+**Avatar surish + zoom** (haqiqiy Chrome, dev server ishlab turishi kerak): `TARGET=http://127.0.0.1:5173/ node scripts/test-avatar-view.mjs` — spec «Tekshiruv» ro'yxati: hech narsa bosmasdan klavishlar, 4 yo'nalish, ushlab turish,
+chegara, zoom min/max, hamma qatlam birga suriladi, 400 ms debounce va qayta ochganda birinchi kadrdan joyida, buzuq qiymat → default, vertikal ekranda nisbat, matn maydoni/Ctrl/boshqa klavishlar ushlanmaydi.
+
+**Salom bilan boshlash** (haqiqiy backend + Chrome soxta mikrofon): `TARGET=http://127.0.0.1:5173/ SCEN="nom|fayl.wav|kutilgan,..." node scripts/test-wake.mjs` — kutilgan: `uz_greeting`, `ru_greeting`, `question`, `ignored` (shovqin),
+`nothing` (jimlik). Har sahnada alohida Chrome; fayl: 3 s jimlik + gap + ~14 s jimlik. `AUTOPLAY=0` — autoplay flagsiz. ⚠️ Salom/shovqin sahnalari LLM chaqiradi, ruscha salom va savol 1 ta TTS so'rovi sarflaydi.
+
 **Haqiqiy odamdek sinov** (haqiqiy backend, ovozli savollar): `REAL=1 REAL_S=138 TARGET=http://127.0.0.1:5173/ MIC_WAV=<savollar.wav> node scripts/test-avatar-transitions.mjs` — Chrome soxta
 mikrofonga WAV faylni beradi (salom uchun 14 s jim, so'ng savollar orasida ~21 s), brauzer VAD → backend (LLM, tayyor klip yoki TTS) → avatar. Har o'tish quyidagi chegaralar bilan o'lchanadi,
 qo'shimcha: tayyor klip/erkin javoblar soni, gap oxiri ovozga to'g'rilangan/kutib chiqilgan (kutish ms), pauzada to'xtashlar va hodisalar ketma-ketligi. ⚠️ Har erkin javob 1 ta TTS so'rovi
