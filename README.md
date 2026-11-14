@@ -152,12 +152,17 @@ gapirsa — birinchi gap ajratib olinadi (2 blok > 0.03 RMS bilan boshlanadi, 0.
 - Live zaxira yo'li (`VOICE_ENGINE=live` yoki TTS kvotasi tugagan): wake gapi to'g'ridan-to'g'ri Live'ga beriladi, Live birinchi javobida o'zi salomlashadi; shovqinni filtrlash yo'q.
 - Kechikish gap tugagandan keyin ~2–4 s (Gemini API tezligiga bog'liq; sekin paytlarda 6–8 s o'lchangan).
 
-### Avatarni joyiga moslash (operator sozlamasi)
-Galogramma/ekranga qarab operator avatarni klaviatura bilan joyiga qo'yadi (AI maslahatchi kiosk ilovasidagi usul; faqat shu ikki funksiya — burish, sichqoncha, ekrandagi tugma yo'q):
+### Operator sozlamalari: surish, zoom, suhbat taymeri (klaviatura + o'ng chetdagi panel)
+Galogramma/ekranga qarab operator avatarni klaviatura bilan joyiga qo'yadi va suhbatni tugatish vaqtini sozlaydi (AI maslahatchi kiosk ilovasidagi usul; faqat shular — burish, sichqoncha, bosiladigan tugma yo'q):
 `←` `→` `↑` `↓` — surish (har bosishda rig balandligining 2%), `+` `=` Numpad`+` — yaqinlashtirish, `−` `_` Numpad`−` — uzoqlashtirish (har bosishda ×1.08; min 0.4, max 2.5); ushlab turilsa takrorlanadi.
 Surish chegarasi: avatar ekrandan butunlay chiqib ketmaydi. Holat **avtomatik saqlanadi** (oxirgi bosishdan 400 ms keyin, `localStorage` `bojxona.avatarView.v1` = `{v:1,x,y,zoom}`) va ochilganda birinchi kadrdan oldin tiklanadi; buzuq
 qiymat → asl joy. X, Y rig balandligi ulushida saqlanadi — ekran o'lchami o'zgarsa yoki galogramma aylantirilsa nisbat buzilmaydi. Hamma video qatlam bitta `.avatar-rig` ichida: klip almashganda joy sakramaydi.
-Matn maydonida fokus bo'lsa yoki Ctrl/Cmd/Alt bosilgan bo'lsa klavishlar ushlanmaydi. Kod: `src/avatarView.ts` (sof funksiyalar), `src/useAvatarView.ts`.
+Matn maydonida fokus bo'lsa yoki Ctrl/Cmd/Alt bosilgan bo'lsa klavishlar ushlanmaydi. Kod: `src/avatarView.ts` (sof funksiyalar), `src/avatarViewStore.ts` (yagona qiymat + saqlash), `src/useAvatarView.ts`.
+- **Klavishlar paneli** (`src/ControlsPanel.tsx`): o'ng chetda doim ko'rinadi — Surish (↑←↓→), Zoom (+ −), Suhbat taymeri (`[` `]` + joriy qiymat `30 s` / `o'chiq`) va «O'zgarishlar avtomatik saqlanadi»; `pointer-events: none`, sahnaga to'liq balandlikda, avatar rig'ini siljitmaydi
+  (keng ekranda avatarga tegmaydi; tik ekranda avatarning o'ng chetida turadi). `backdrop-filter` ishlatilmaydi — u videoni har kadrda qayta chizdiradi.
+- **Suhbatni tugatish taymeri** (`src/idleTimer.ts`, jimlik): hech kim gapirmagan vaqt `endSec` ga yetsa (default **30 s**; `]` +5 s, `[` −5 s; 10…180 s; 10 da `[` → **o'chiq**, o'chiqda `]` → 10; o'chiq = faqat «Tugatish» tugmasi) suhbat chiroyli tugaydi:
+  mikrofon yopiladi → javob (bo'lsa) oxirigacha aytiladi (+1.2 s, eng ko'pi 12 s) → sessiya yopiladi → salom kutish rejimi. Avatar gapirayotganda yoki javob yo'lda bo'lsa jimlik sanalmaydi; yo'lovchi gapirsa yoki sozlama o'zgarsa sanoq qayta boshlanadi; sozlama suhbat ketayotganda ham darhol kuchga kiradi.
+- Saqlash formati: `{v:1, x, y, zoom, endSec}` (`localStorage` `bojxona.avatarView.v1`); eski yozuvda `endSec` yo'q → 30.
 - **O'rnatishda**: USB klaviatura ulanadi → strelkalar va `+`/`−` bilan avatar joyiga qo'yiladi → sahifa qayta ochilib saqlangani tekshiriladi → klaviatura uziladi. Saqlash brauzer profilida, shuning uchun
   kiosk Chrome **doimiy profil** bilan ochilsin (`--user-data-dir=C:\bojxona-kiosk-profile`), `--incognito`/`--guest` **emas** — aks holda qayta yoqilganda joy yo'qoladi. Desktop o'ram (Electron/WebView) ishlatilsa — sahifa
   startda fokus olishi kerak, aks holda klavishlar ekranni bosgandan keyingina ishlaydi.
@@ -183,6 +188,9 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
 
 ### Sinov
+**Panel + suhbat taymeri** (haqiqiy Chrome + backend, soxta mikrofon = jim WAV): `TARGET=http://127.0.0.1:5173/ SILENCE_WAV=<18 s jim.wav> node scripts/test-end-timer.mjs` — panel (o'ng chet, matnlar, jonli qiymat, sichqonchani to'smaydi), `[`/`]` qadam va chegaralar, saqlash,
+jimlikda suhbat `endSec` dan keyin o'zi tugashi va kutish rejimiga qaytishi, «o'chiq» da tugamasligi, suhbat ketayotganda sozlama darhol kuchga kirishi (~2 daqiqa). Birlik testlar: `idleTimer.test.ts` (soxta vaqt), `avatarView.test.ts`.
+
 **Avatar surish + zoom** (haqiqiy Chrome, dev server ishlab turishi kerak): `TARGET=http://127.0.0.1:5173/ node scripts/test-avatar-view.mjs` — spec «Tekshiruv» ro'yxati: hech narsa bosmasdan klavishlar, 4 yo'nalish, ushlab turish,
 chegara, zoom min/max, hamma qatlam birga suriladi, 400 ms debounce va qayta ochganda birinchi kadrdan joyida, buzuq qiymat → default, vertikal ekranda nisbat, matn maydoni/Ctrl/boshqa klavishlar ushlanmaydi.
 

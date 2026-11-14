@@ -137,7 +137,7 @@ try {
   ok("debounce: bosishdan darrov yozilmaydi, 400 ms dan keyin yoziladi", early === null && late !== null, `darrov=${early} keyin=${late}`);
   let saved = {};
   try { saved = JSON.parse(late); } catch { /* */ }
-  ok("saqlangan format {v:1, x, y, zoom}", saved.v === 1 && near(saved.x, 3 * PAN, 1e-6) && saved.y === 0 && saved.zoom === 1, late);
+  ok("saqlangan format {v:1, x, y, zoom, endSec}", saved.v === 1 && near(saved.x, 3 * PAN, 1e-6) && saved.y === 0 && saved.zoom === 1 && saved.endSec === 30, late);
 
   // 7) qayta ochish: joy birinchi kadrdan saqlangan holatda (sakramaydi)
   await press("Equal", 2); await press("ArrowUp", 2);
@@ -166,6 +166,13 @@ try {
     const gb = await geo();
     ok(`buzuq qiymat ${bad.slice(0, 34)} → default`, /scale\(1\)/.test(gb.t) && near(gb.cx, g0.cx) && near(gb.cy, g0.cy), gb.t);
   }
+
+  // 9b) eski yozuv (endSec yo'q): surish/zoom tiklanadi, taymer 30 s
+  await page.evaluate((k) => localStorage.setItem(k, JSON.stringify({ v: 1, x: 0.1, y: 0, zoom: 1.2 })), KEY);
+  await page.reload({ waitUntil: "load" });
+  await page.waitForSelector(".avatar-rig");
+  const old1 = await page.evaluate(() => ({ t: document.querySelector(".avatar-rig").style.transform, end: document.querySelector("[data-testid=end-value]")?.textContent }));
+  ok("eski yozuv: surish/zoom tiklandi, taymer 30 s", /scale\(1\.2\)/.test(old1.t) && old1.end === "30 s", `${old1.t} | ${old1.end}`);
 
   // 10) oyna o'lchami o'zgarsa nisbat saqlanadi (X, Y — rig balandligi ulushida)
   await reset();

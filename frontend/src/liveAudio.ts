@@ -29,6 +29,10 @@ export const VIDEO_LEAD_S = 0.2;
 
 export interface LiveHandle {
   stop: () => void;
+  /** mikrofon yopiladi (yangi savol qabul qilinmaydi) — suhbatni chiroyli yakunlash uchun (idleTimer) */
+  muteMic: () => void;
+  /** avatar gapiryapti, tayyor javob klipi ijro etilyapti yoki javob yo'lda — jimlik taymeri sanamaydi */
+  isBusy: () => boolean;
   /** tayyor javob klipi (video o'z ovozi bilan) ijrosi tugadi — mikrofon qayta ochiladi */
   clipEnded: () => void;
 }
@@ -53,6 +57,8 @@ export interface LiveOpts {
   onGreeting?: () => void;
   /** wake rejimida birinchi gap salom ham savol ham emas (shovqin) — suhbat boshlanmaydi */
   onWakeIgnored?: () => void;
+  /** yo'lovchi gapiryapti (mikrofon balandligi chegaradan baland, har ~0.1 s) — suhbatni tugatish taymeri qayta boshlanadi */
+  onUserSpeech?: () => void;
 }
 
 const PLAY_RATE = 1; // ijro tezligi (1 = asl)
@@ -63,7 +69,7 @@ function wsUrl(wake: boolean): string {
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored, onUserSpeech } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -236,6 +242,9 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
 
   // --- Client-side VAD: gapirish boshi/oxirini aniqlab activity_start/end yuboradi ---
   let talking = false;
+  let micMuted = false; // suhbat yakunlanyapti: yangi savol qabul qilinmaydi
+  let awaitingReply = false; // yo'lovchi gapini yubordi, javob hali kelmadi (taymer shu paytda sanamaydi)
+  let awaitingSince = 0;
   let lastVoice = 0;
   const START_RMS = 0.02; // gapirish boshlanishi (fon shovqinидan yuqori)
   const HANG_SEC = 1.3; // shuncha sukunatdan keyin "gapirib bo'ldi" (pauzada gapni kesmaslik uchun)
@@ -248,6 +257,14 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     const rms = Math.sqrt(sum / f32.length);
     const now = performance.now() / 1000;
 
+    if (micMuted) {
+      if (talking) {
+        talking = false;
+        try { ws.send(JSON.stringify({ type: "activity_end" })); } catch { /* */ }
+      }
+      return;
+    }
+
     // Avatar gapirayotganda foydalanuvchi ovozini e'tiborsiz qoldiramiz (o'zini bo'lmasin)
     if (avatarSpeaking || (busy && now < busyUntil)) {
       if (talking) {
@@ -258,6 +275,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     }
 
     if (rms > START_RMS) {
+      onUserSpeech?.();
       if (!talking) {
         talking = true;
         try { ws.send(JSON.stringify({ type: "activity_start" })); } catch { /* */ }
@@ -276,6 +294,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
       ws.send(i16.buffer);
       if (now - lastVoice > HANG_SEC) {
         talking = false;
+        awaitingReply = true; // gap tugadi — javob kutilyapti
+        awaitingSince = now;
         try { ws.send(JSON.stringify({ type: "activity_end" })); } catch { /* */ }
       }
     }
@@ -287,6 +307,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
   ws.onopen = () => {
     if (!wake) return; // ready kutamiz
     // Kutish rejimida ushlangan birinchi gap: oddiy mikrofon gapi kabi (activity_start + PCM16 16 kHz + activity_end) — backend salom/savol/shovqinni aniqlaydi
+    awaitingReply = true;
+    awaitingSince = performance.now() / 1000;
     try {
       ws.send(JSON.stringify({ type: "activity_start" }));
       for (let i = 0; i < wake.length; i += 4096) ws.send(wake.slice(i, i + 4096).buffer);
@@ -303,6 +325,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         seenSound = false;
       }
       turnDone = false;
+      awaitingReply = false;
       lastAudioAt = performance.now() / 1000;
       if (turnRef) {
         turnRef.current.active = true;
@@ -319,13 +342,16 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
           greeted = false; // keyingi birinchi audio — tayyor salom (salom videosi, ovoz greetDelayS dan keyin)
           onGreeting?.();
         } else if (m.type === "wake_ignored") {
+          awaitingReply = false;
           onWakeIgnored?.(); // shovqin / salom ham savol ham emas — kutish rejimiga qaytamiz
         } else if (m.type === "clip") {
+          awaitingReply = false;
           clipBusy = true; // klip tugaguncha mikrofon yopiq (clipEnded)
           onClip?.(String(m.id));
         }
         else if (m.type === "interrupted") flush();
         else if (m.type === "turn_complete") {
+          awaitingReply = false;
           turnDone = true;
           if (pend.length && !turnPlaying) startTurnPlayback(); // javob to'liq keldi: kutmasdan ijro
           if (turnRef) turnRef.current.done = true;
@@ -334,6 +360,7 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
           busyUntil = performance.now() / 1000 + wait;
         }
         else if (m.type === "error") {
+          awaitingReply = false;
           (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "ws-error", msg: m.msg });
           onError(m.msg || "xato");
         }
@@ -416,5 +443,11 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     busyUntil = performance.now() / 1000 + 0.8; // ovoz aks-sadosi mikrofonga tushmasin
   };
 
-  return { stop, clipEnded };
+  const muteMic = () => {
+    micMuted = true;
+  };
+
+  const isBusy = () => avatarSpeaking || clipBusy || !!turnRef?.current.active || (awaitingReply && performance.now() / 1000 - awaitingSince < 30);
+
+  return { stop, clipEnded, muteMic, isBusy };
 }
