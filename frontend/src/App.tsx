@@ -4,6 +4,9 @@ import { GREETING_SPEECH_START_S, assetUrl } from "./avatarClips";
 import { newTurnInfo, startLive, type LiveHandle, type LiveState, type TurnInfo } from "./liveAudio";
 import { micErrorMessage } from "./micError";
 import { startWakeListener, type WakeHandle } from "./wakeListener";
+import { ControlsPanel } from "./ControlsPanel";
+import { createIdleTimer } from "./idleTimer";
+import { getView, subscribe } from "./avatarViewStore";
 
 export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
@@ -19,6 +22,7 @@ export default function App() {
   const [standbyBlocked, setStandbyBlocked] = useState(false); // brauzer ovozni yoqmagan: sahifani bir marta bosish kerak (kioskda autoplay flag bilan bo'lmaydi)
   const standbyRef = useRef<WakeHandle | null>(null);
   const standbyGen = useRef(0);
+  const idleRef = useRef(createIdleTimer()); // suhbatni tugatish taymeri (jimlik): operator sozlamasi `[` `]` — avatarViewStore.endSec
 
   const active = state !== "idle" && state !== "stopped" && state !== "error";
 
@@ -66,6 +70,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Suhbatni tugatish taymeri: hech kim gapirmagan vaqt endSec ga yetsa — mikrofon yopiladi, javob (bo'lsa) oxirigacha aytiladi, so'ng stop() va salom kutish rejimi.
+  // Avatar gapirayotganda yoki javob yo'lda bo'lsa jimlik sanalmaydi; yo'lovchi gapirsa yoki sozlama o'zgarsa sanoq qayta boshlanadi (endSec = 0 — o'chiq).
+  useEffect(() => {
+    if (!active) return;
+    const timer = idleRef.current;
+    timer.start(performance.now());
+    const unsub = subscribe(() => timer.touch(performance.now()));
+    const id = window.setInterval(() => {
+      const h = handleRef.current;
+      if (!h) return;
+      const step = timer.step(performance.now(), getView().endSec, h.isBusy());
+      if (step === "finish") h.muteMic();
+      else if (step === "stop") stop();
+    }, 500);
+    return () => {
+      window.clearInterval(id);
+      unsub();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
   async function start(wakePcm?: Int16Array) {
     stopStandby();
     setError("");
@@ -81,6 +106,7 @@ export default function App() {
         onGreetAudio: () => setGreetStart((k) => k + 1),
         greetDelayS: Math.max(0, GREETING_SPEECH_START_S - 0.05), // video ~50 ms keyin boshlanadi
         turnRef,
+        onUserSpeech: () => idleRef.current.touch(performance.now()),
         onClip: (id) => setAnswer((a) => ({ id, key: (a?.key ?? 0) + 1 })),
         onClips: (ids) => {
           // tayyor javob kliplari oldindan keshga olinadi (savolda darhol boshlansin)
@@ -137,6 +163,7 @@ export default function App() {
       <div className="scene">
         <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} turnRef={turnRef} answer={answer} onAnswerEnd={() => handleRef.current?.clipEnded()} />
         {status && <div className="status">{status}</div>}
+        <ControlsPanel />
       </div>
 
       <div className="controls">

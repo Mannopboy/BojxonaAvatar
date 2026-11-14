@@ -1,6 +1,6 @@
-// Avatarni joyiga moslash (operator sozlamasi): klaviatura bilan 4 yo'nalishga surish va zoom. Faqat shu ikki funksiya.
-// Usul «AI maslahatchi» kiosk ilovasidagidek: faqat klaviatura, holat avtomatik saqlanadi (400 ms debounce), ochilganda birinchi kadrdan oldin tiklanadi.
-// Spec: Obsidian vault «BojxonaAvatar / 08 - Frontend (Web) / 01 - Avatar surish va zoom (Operator sozlamasi)».
+// Operator sozlamalari (klaviatura bilan, faqat shular): avatarni 4 yo'nalishga surish, zoom va suhbatni tugatish taymeri. Usul «AI maslahatchi» kiosk ilovasidagidek:
+// faqat klaviatura, holat avtomatik saqlanadi (400 ms debounce), ochilganda birinchi kadrdan oldin tiklanadi, o'ng chetdagi panelda ko'rinadi.
+// Spec: Obsidian vault «BojxonaAvatar / 08 - Frontend (Web) / 01 - Avatar surish va zoom», «03 - Suhbatni tugatish taymeri».
 //
 // X, Y — rig BALANDLIGINING ulushi (px emas): ekran o'lchami o'zgarsa yoki galogramma aylantirilsa ham nisbat buzilmaydi. Zoom — ko'paytiruvchi.
 import { FRAME_H, FRAME_W } from "./avatarClips";
@@ -9,13 +9,18 @@ export interface AvatarView {
   x: number; // o'ngga +, chapga −  (rig balandligi ulushida)
   y: number; // pastga +, tepaga −
   zoom: number; // 1 = asl o'lcham
+  endSec: number; // suhbatni tugatish taymeri: hech kim gapirmagan soniyalar (0 = o'chiq, faqat «Tugatish» tugmasi)
 }
 
-export const DEFAULT_VIEW: AvatarView = { x: 0, y: 0, zoom: 1 };
 export const PAN_STEP = 0.02; // har bosishda rig balandligining 2%
 export const ZOOM_STEP = 0.08; // har bosishda 8%
 export const ZMIN = 0.4;
 export const ZMAX = 2.5;
+export const END_DEFAULT = 30;
+export const END_MIN = 10;
+export const END_MAX = 180;
+export const END_STEP = 5;
+export const DEFAULT_VIEW: AvatarView = { x: 0, y: 0, zoom: 1, endSec: END_DEFAULT };
 export const STORAGE_KEY = "bojxona.avatarView.v1";
 export const SAVE_DEBOUNCE_MS = 400;
 
@@ -25,11 +30,14 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 /** Surish chegarasi: avatar ekrandan butunlay chiqib ketmasin (rig ulushida). */
 export const panLimit = (zoom: number) => 0.5 + zoom / 2;
 
-/** Qiymatlarni chegaraga keltiradi (zoom [ZMIN, ZMAX], surish ±panLimit). */
+/** Taymer qiymatini chegaraga keltiradi: 0 (o'chiq) yoki [END_MIN, END_MAX]. */
+const clampEnd = (s: number) => (s <= 0 ? 0 : Math.round(clamp(s, END_MIN, END_MAX)));
+
+/** Qiymatlarni chegaraga keltiradi (zoom [ZMIN, ZMAX], surish ±panLimit, taymer 0 yoki 10…180). */
 export function clampView(v: AvatarView): AvatarView {
   const zoom = round4(clamp(v.zoom, ZMIN, ZMAX));
   const lim = panLimit(zoom);
-  return { x: round4(clamp(v.x, -lim, lim)), y: round4(clamp(v.y, -lim, lim)), zoom };
+  return { x: round4(clamp(v.x, -lim, lim)), y: round4(clamp(v.y, -lim, lim)), zoom, endSec: clampEnd(v.endSec) };
 }
 
 /** Surish: dx/dy ∈ {-1, 0, 1} (chap/o'ng, tepa/past) — har bosishda PAN_STEP. */
@@ -43,8 +51,21 @@ export function zoomView(v: AvatarView, dir: 1 | -1): AvatarView {
 }
 
 /**
+ * Suhbat taymeri: `]` +5 s, `[` −5 s; 10…180 s. Chegarada `[` bosilsa 10 → 0 (o'chiq), `]` bosilsa 0 → 10 (spec).
+ */
+export function endView(v: AvatarView, dir: 1 | -1): AvatarView {
+  let e = v.endSec;
+  if (dir > 0) e = e <= 0 ? END_MIN : Math.min(END_MAX, e + END_STEP);
+  else e = e <= END_MIN ? 0 : e - END_STEP;
+  return { ...v, endSec: e };
+}
+
+/** Panelda ko'rinadigan taymer qiymati. */
+export const endLabel = (sec: number) => (sec <= 0 ? "o'chiq" : `${sec} s`);
+
+/**
  * Saqlangan qiymatni o'qiydi va tekshiradi: JSON, v === 1, son va isFinite, chegaralar ichida — aks holda DEFAULT_VIEW
- * (buzuq qiymat yarim-yarmiga tuzatilmaydi: noma'lum holatdan asl joyga qaytish xavfsizroq).
+ * (buzuq qiymat yarim-yarmiga tuzatilmaydi: noma'lum holatdan asl joyga qaytish xavfsizroq). `endSec` yo'q (eski yozuv) → 30.
  */
 export function parseView(raw: string | null | undefined): AvatarView {
   if (!raw) return { ...DEFAULT_VIEW };
@@ -57,13 +78,19 @@ export function parseView(raw: string | null | undefined): AvatarView {
     if (zoom < ZMIN || zoom > ZMAX) return { ...DEFAULT_VIEW };
     const lim = panLimit(zoom);
     if (Math.abs(x) > lim || Math.abs(y) > lim) return { ...DEFAULT_VIEW };
-    return { x, y, zoom };
+    let endSec = END_DEFAULT;
+    if (o.endSec !== undefined) {
+      const e = o.endSec;
+      if (typeof e !== "number" || !Number.isFinite(e) || !(e === 0 || (e >= END_MIN && e <= END_MAX))) return { ...DEFAULT_VIEW };
+      endSec = e;
+    }
+    return { x, y, zoom, endSec };
   } catch {
     return { ...DEFAULT_VIEW };
   }
 }
 
-export const serializeView = (v: AvatarView): string => JSON.stringify({ v: 1, x: v.x, y: v.y, zoom: v.zoom });
+export const serializeView = (v: AvatarView): string => JSON.stringify({ v: 1, x: v.x, y: v.y, zoom: v.zoom, endSec: v.endSec });
 
 /**
  * CSS transform: rig `left/top: 50%` bilan joylashgan, shuning uchun markazga -50%. translate foizi elementning O'Z o'lchamiga nisbatan
@@ -75,7 +102,7 @@ export function viewTransform(v: AvatarView): string {
   return `translate(calc(-50% + ${px}%), calc(-50% + ${py}%)) scale(${v.zoom})`;
 }
 
-export type ViewAction = { kind: "pan"; dx: number; dy: number } | { kind: "zoom"; dir: 1 | -1 };
+export type ViewAction = { kind: "pan"; dx: number; dy: number } | { kind: "zoom"; dir: 1 | -1 } | { kind: "end"; dir: 1 | -1 };
 
 /** Klavishni amalga aylantiradi; boshqa klavish, Ctrl/Cmd/Alt (brauzer zoomi, orqaga/oldinga) — null. Spec: boshqa klavish YO'Q. */
 export function keyAction(e: { key: string; code?: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean }): ViewAction | null {
@@ -95,9 +122,16 @@ export function keyAction(e: { key: string; code?: string; ctrlKey?: boolean; me
     case "-":
     case "_":
       return { kind: "zoom", dir: -1 };
+    case "[":
+      return { kind: "end", dir: -1 };
+    case "]":
+      return { kind: "end", dir: 1 };
   }
   if (e.code === "NumpadAdd") return { kind: "zoom", dir: 1 };
   if (e.code === "NumpadSubtract") return { kind: "zoom", dir: -1 };
+  // o'zbekcha/ruscha klaviatura tartibida `[` `]` harf chiqaradi (х ъ) — jismoniy tugma bo'yicha ham ishlaydi
+  if (e.code === "BracketLeft") return { kind: "end", dir: -1 };
+  if (e.code === "BracketRight") return { kind: "end", dir: 1 };
   return null;
 }
 
@@ -110,5 +144,7 @@ export function isTypingTarget(t: EventTarget | null): boolean {
 }
 
 export function applyAction(v: AvatarView, a: ViewAction): AvatarView {
-  return a.kind === "pan" ? panView(v, a.dx, a.dy) : zoomView(v, a.dir);
+  if (a.kind === "pan") return panView(v, a.dx, a.dy);
+  if (a.kind === "zoom") return zoomView(v, a.dir);
+  return endView(v, a.dir);
 }
