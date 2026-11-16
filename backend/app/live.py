@@ -124,15 +124,20 @@ async def ws_live(ws: WebSocket):
                 """Gemini javobini turn_complete gacha o'qib clientga uzatadi (HALF-DUPLEX).
                 ⚠️ send_client_content (greeting) parallel receive bilan mos kelmaydi — shuning uchun
                 har turn ketma-ket: yuboramiz → javobni to'liq o'qiymiz → keyingi turn."""
+                sent_tr = False  # shu javobda transcript yuborildimi (kiosk yangi javob boshlanishini transcript/clip dan biladi)
                 async for resp in session.receive():
                     sc = resp.server_content
                     if resp.data:
+                        if not sent_tr:  # Live matnni audiodan KEYIN berishi mumkin — yangi javob belgisi sifatida bo'sh transcript audiodan oldin yuboriladi
+                            sent_tr = True
+                            await ws.send_text(json.dumps({"type": "transcript", "text": ""}))
                         await ws.send_bytes(resp.data)  # audio (PCM16 24kHz)
                     if sc:
                         if sc.interrupted:
                             await ws.send_text(json.dumps({"type": "interrupted"}))
                         tr = sc.output_transcription
                         if tr and tr.text:
+                            sent_tr = True
                             await ws.send_text(json.dumps({"type": "transcript", "text": tr.text}))
                         if sc.turn_complete:
                             await ws.send_text(json.dumps({"type": "turn_complete"}))

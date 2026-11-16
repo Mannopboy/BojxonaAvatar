@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Asosiy TTS modelining kunlik kvotasi (Tier 1: kuniga 100 so'rov) tugasa — shu model (alohida kvota). Ikkalasi ham tugasa yangi suhbatlar Gemini Live'ga o'tadi.
     gemini_tts_fallback_model: str = "gemini-3.8-flash-lite-tts"
     tts_live_fallback: bool = True  # ikkala TTS modeli kvotasi tugasa — matnni Gemini Live o'qib beradi (tayyor javob kliplari ishlashda davom etadi)
+    # Ovozlar (ikkalasi ham AYOL — avatar ayol xodim; yo'lovchi suhbat o'rtasida ovoz almashganini eshitmasin). `GEMINI_VOICE` faqat sof Gemini Live yo'li (VOICE_ENGINE=live) uchun qoldi:
+    # serverdagi eski .env da GEMINI_VOICE=Orus (erkak) turgan bo'lsa ham asosiy TTS va zaxira Live ovozi o'zgarmasin.
+    gemini_tts_voice: str = "Kore"  # asosiy TTS (gemini-3.8-flash-tts) ovozi
+    gemini_live_fallback_voice: str = "Kore"  # TTS kvotasi tugaganda matnni o'qiydigan Gemini Live ovozi (o'lchangan: F0 185–229 Hz — ayol)
     gemini_chat_model: str = ""  # bo'sh bo'lsa gemini_text_model ishlatiladi
     # TTS barqarorligi: standart haroratda (1.0) bir xil matn har chaqiruvda turlicha o'qiladi (o'lchangan: tezlik ±0.65 s / 7 s, balandlik ±30%, ohang ±4%) — suhbat
     # o'rtasida ovoz "qalinlashib/o'zgarib" qolgandek eshitiladi. Past harorat + qat'iy seed shuni bartaraf etadi (davomiylik ±0.05 s).
@@ -31,6 +35,14 @@ class Settings(BaseSettings):
     # Salom matni app/assets/greeting.txt bilan bir xil bo'lishi kerak: salom videosi (frontend/public/avatar/greeting.mp4) aynan shu audio (assets/greeting.pcm) bilan yaratilgan —
     # lab harakati ovozga mos. Boshqa matn qo'yilsa TTS ovozlaydi va video bilan mos kelmaydi.
     greeting_text: str = "Assalomu alaykum, hurmatli yo'lovchi! Men Davlat bojxona qo'mitasining virtual xodimiman."
+
+    # Kiosk ilova (bojxona_gologramma) reliz fayllari: manifest latest.json + files/bojxona_gologramma_setup_<versiya>.exe. Docker'da /app/data (backend_data volume) ichida — deploy o'chirmaydi.
+    releases_dir: str = "data/releases"
+    release_admin_key: str = ""  # POST /app/windows/release uchun X-Admin-Key; bo'sh bo'lsa yuklash O'CHIQ (503). Yo'lovchi reliz yuklay olmasin
+    public_base_url: str = ""  # manifest `url` uchun tashqi manzil (bo'sh bo'lsa so'rov sarlavhalaridan: https://<host>)
+    audio_cache_dir: str = "data/audio_cache"  # runtime audio keshi (Docker'da /app/data/audio_cache — volume)
+    release_max_mb: int = 300
+    release_keep: int = 3  # eng yangi shuncha o'rnatuvchi saqlanadi (har biri ~68 MB)
 
     grounding_enabled: bool = True
     # Rasmiy manba allowlist (vergul bilan) — ADR-005
