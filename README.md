@@ -167,6 +167,30 @@ Matn maydonida fokus bo'lsa yoki Ctrl/Cmd/Alt bosilgan bo'lsa klavishlar ushlanm
   kiosk Chrome **doimiy profil** bilan ochilsin (`--user-data-dir=C:\bojxona-kiosk-profile`), `--incognito`/`--guest` **emas** — aks holda qayta yoqilganda joy yo'qoladi. Desktop o'ram (Electron/WebView) ishlatilsa — sahifa
   startda fokus olishi kerak, aks holda klavishlar ekranni bosgandan keyingina ishlaydi.
 
+### Javob kechikishi, tayyor audio va javobni bo'lish (backend)
+- **Tushunish tezligi.** Ovozli savolda javob chaqiruvi bilan PARALLEL kichik tasniflash (`TURN_CLASSIFY`, ~1.5–2 s) ishlaydi: gap tushunarsiz (shovqin, uzilgan) bo'lsa uzoq o'ylamasdan **qisqa qayta so'raladi**
+  («Kechirasiz, savolingizni takrorlang.», audio diskdan, ~1.7 s; avval 3.3–6.9 s), tushunarli bo'lsa javob allaqachon yo'lda (kechikish qo'shilmaydi). Shubha bo'lsa «savol» deb olinadi. Sessiya ochilganda matn modeli isitiladi (`_warm_llm`) — birinchi savol ham tez.
+- **Tayyor javoblar** (`assets/answers.json`): `"video": true` (standart) — video klip o'z ovozi bilan (aeroport, temir yo'l); `"video": false` — faqat oldindan ovozlangan audio (`limits`, `car`, `post_courier`, `currency`: 3 asosiy FAQ javoblari, matn aynan
+  tasdiqlangan faktlardan): darhol chiqadi, **TTS kvotasi sarflanmaydi**, ovoz doim asosiy (Kore). Audio `assets/audio_cache/<sha1>.pcm` da (git'da; `index.json` — matnlar). Yangi javob qo'shish/matnni o'zgartirish: `answers.json` ni tahrirlab
+  `cd backend && python -m app.gen_audio_cache` (faqat ASOSIY TTS ovozi qabul qilinadi; `--force` — qayta ovozlash). Qat'iy matnlar (salom, qayta so'rash, xato matnlari) ham shu kesh orqali beriladi; runtime keshi `data/audio_cache` (volume).
+- **Server vaqtlari:** `turn_complete.timing = {understand_ms, answer_ms, tts_first_ms, first_ms, voice, clip}` — `first_ms` = `activity_end` dan birinchi audio/klipgacha, `voice` = `clip|cache|tts|tts-lite|live`. Backend logida ham (`turn timing: …`). Kiosk uni `turn_timing.log` ga yozadi.
+  O'lchangan (2026-11-16, mahalliy): tayyor klip 0.8 s, video'siz tayyor javob 1.2 s, erkin TTS javob 1.9 s, qayta so'rash 1.7 s, salom bilan boshlash 1.9 s.
+- **Ovoz.** Ikkala ovoz ham AYOL: asosiy TTS `GEMINI_TTS_VOICE` (Kore), zaxira Live `GEMINI_LIVE_FALLBACK_VOICE` (Kore; o'lchangan F0 185–229 Hz). Eski `GEMINI_VOICE` faqat sof Live yo'li (`VOICE_ENGINE=live`) uchun — serverdagi eski `.env` da `Orus` (erkak) turgan bo'lsa ham
+  endi TTS va zaxira ovozga ta'sir qilmaydi.
+- **Javobni bo'lish (barge-in).** Javob audiosi/klipi allaqachon ketayotgan paytda `activity_start` kelsa joriy javob to'xtatiladi (TTS oqimi uziladi — kvota va vaqt tejaladi), `{"type":"interrupted"}` yuboriladi, uzilgan javob uchun
+  `turn_complete` YUBORILMAYDI va yangi gap qabul qilinadi. Javob hali tayyorlanayotgan bo'lsa (audio ketmagan) oldingidek yangi gap tashlanadi (shovqin javobni uzmasin). Har javob audiosidan OLDIN `transcript` (yoki `clip`) keladi — Live zaxira yo'lida
+  ham (u matnni audiodan keyin bergani uchun audiodan oldin bo'sh `transcript` yuboriladi). Sof Live yo'lida (`VOICE_ENGINE=live`) bo'lish yo'q.
+
+### Kiosk ilova yangilanishi (reliz endpointlari)
+Kiosk ilova (`bojxona_gologramma`, Flutter Windows) `GET /api/app/windows/latest` ni har 6 soatda so'raydi va yangi versiya bo'lsa o'zi yangilanadi (`backend/app/releases.py`; shartnoma — Obsidian «09 - Mobile (App) / 02 - Ilova yangilanishi»).
+- `GET /app/windows/latest` (tashqarida `/api/app/windows/latest`) — ochiq; `{version, url, sha256, size, notes}`, reliz yo'q bo'lsa `404` (ilova uchun oddiy holat). Ilova rad etadigan manifest (http, `.exe` emas, xesh buzuq) mijozga berilmaydi.
+- `GET /downloads/<bojxona_gologramma_setup_X.Y.Z.exe>` (tashqarida `/api/downloads/…`) — o'rnatuvchi (`Content-Length`, `Range`); boshqa fayl nomlari va `../` — 404.
+- `POST /app/windows/release?version=X.Y.Z[&notes=…][&force=1]` — `X-Admin-Key` bilan, tana = `.exe` baytlari: xesh va hajmni server o'zi hisoblaydi, **avval fayl, keyin manifest** (atomik) yoziladi; `MZ` sarlavhasi tekshiriladi, ≤ 300 MB; ilova
+  pastga tushmagani uchun joriydan past versiya `409` (`force=1` bilan majburlanadi); eng yangi 3 ta o'rnatuvchi saqlanadi. Misol: `curl -X POST "https://bojxona.fintech-company.uz/api/app/windows/release?version=1.0.3&notes=..." -H "X-Admin-Key: $KEY" -H "Content-Type: application/octet-stream" --data-binary @bojxona_gologramma_setup_1.0.3.exe`
+- Saqlash: `RELEASES_DIR` (standart `data/releases` → Docker'da `/app/data/releases`, `backend_data` volume — deploy o'chirmaydi): `files/<setup>.exe` + `latest.json`. Qo'lda ham qo'yish mumkin (`docker cp`): avval `.exe`, keyin `latest.json`.
+- **Serverda sozlash (DevOps):** (1) `infra/.env` ga `RELEASE_ADMIN_KEY=<tasodifiy kalit>` (bo'sh bo'lsa yuklash o'chiq — 503); (2) host nginx'ga `infra/nginx/bojxonaavatar.conf` dagi yangi `location = /api/app/windows/release` (katta tana, bufersiz) ni qo'shib `nginx -t && nginx -s reload`
+  (aks holda 5 MB dan katta yuklash `413` beradi); (3) birinchi relizni yuklash (mobil dasturchi `dist\` dagi `.exe` ni yuboradi). Tekshiruv: `curl -s https://bojxona.fintech-company.uz/api/app/windows/latest` → JSON, `curl -sL <url> | sha256sum` → manifestdagi xesh.
+
 ### Videolarni qayta tayyorlash (yangi xodim yoki yangi klip)
 Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build_assets.py`, `align.py`, `exits.py`; Python + OpenCV + numpy + ffmpeg).
 1. Higgsfield: uy kadri (qora fon) + audio ko'rsatma (gap iboralari orasida ~0.5 s jim) → klip (`GENERATE.md`: prompt va qabul mezonlari: ifoda mo'tadil, ko'z qisish/tabassum yo'q,
@@ -188,6 +212,9 @@ Skriptlar va Higgsfield promptlari: `tools/avatar-build/` (`GENERATE.md`, `build
 3. `out/*.mp4` → `frontend/public/avatar/`, `out/avatarClips.json` → `frontend/src/avatarClips.json`, `src/avatarClips.ts` dagi `ASSET_V` ni oshiring (nginx `/avatar/` ni keshlaydi).
 
 ### Sinov
+**Backend** (`backend/`): `python -m unittest discover -s tests -v` — reliz endpointlari (yuklash, xesh, Range, pastga tushmaslik, yo'l himoyasi) va ovoz mantig'i (tayyor javoblar yaxlitligi, audio kesh, timing, ovoz sozlamalari), tarmoqsiz, 1 s. Haqiqiy Gemini bilan WebSocket e2e:
+`python tests/ws_e2e.py ws://127.0.0.1:8000/ws/live [shovqin.wav nutq.wav]` — vaqtlar, video'siz tayyor javob, klip, qayta so'rash, barge-in, wake (⚠️ erkin javob va barge-in 1–2 ta TTS so'rovi sarflaydi).
+
 **Panel + suhbat taymeri** (haqiqiy Chrome + backend, soxta mikrofon = jim WAV): `TARGET=http://127.0.0.1:5173/ SILENCE_WAV=<18 s jim.wav> node scripts/test-end-timer.mjs` — panel (o'ng chet, matnlar, jonli qiymat, sichqonchani to'smaydi), `[`/`]` qadam va chegaralar, saqlash,
 jimlikda suhbat `endSec` dan keyin o'zi tugashi va kutish rejimiga qaytishi, «o'chiq» da tugamasligi, suhbat ketayotganda sozlama darhol kuchga kirishi (~2 daqiqa). Birlik testlar: `idleTimer.test.ts` (soxta vaqt), `avatarView.test.ts`.
 

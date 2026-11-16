@@ -83,3 +83,12 @@ tail -f /opt/bojxonaavatar/deploy.log        # poller
 ## Eslatma
 - **HTTPS majburiy** — mikrofon (getUserMedia) faqat secure-context'da. Cloudflare orqasida bo'lsa origin sertifikat = **Full (strict)** (aks holda 526).
 - Ma'lumot O'zbekistonda (O'RQ-547) — server O'zbekistonda.
+
+## Kiosk ilova yangilanishi (reliz yuklash)
+
+Backend `GET /api/app/windows/latest` (manifest) va `/api/downloads/<setup>.exe` ni o'zi beradi; fayllar `backend_data` volume'dagi `/app/data/releases` da (deploy o'chirmaydi).
+1. `infra/.env` ga `RELEASE_ADMIN_KEY=<kalit>` (`python -c "import secrets; print(secrets.token_urlsafe(32))"`), so'ng `docker compose -f infra/compose.prod.yml up -d` — kalit bo'sh bo'lsa yuklash o'chiq (503).
+2. Host nginx: `infra/nginx/bojxonaavatar.conf` dagi `location = /api/app/windows/release` (300 MB, `proxy_request_buffering off`) ni qo'shing → `nginx -t && nginx -s reload` (aks holda ~68 MB yuklash `413` bilan qaytadi).
+3. Reliz: `curl -X POST "https://bojxona.fintech-company.uz/api/app/windows/release?version=1.0.3&notes=..." -H "X-Admin-Key: $KEY" -H "Content-Type: application/octet-stream" --data-binary @bojxona_gologramma_setup_1.0.3.exe` → `201` + manifest.
+4. Qabul: `curl -s https://bojxona.fintech-company.uz/api/app/windows/latest` (JSON) va `curl -sL <url> | sha256sum` (manifestdagi `sha256` bilan bir xil).
+Yuklash o'rniga qo'lda: fayllarni konteynerga ko'chirish — `docker cp <setup>.exe bojxonaavatar-backend-1:/app/data/releases/files/` so'ng `latest.json` ni `/app/data/releases/` ga (avval `.exe`, keyin manifest).

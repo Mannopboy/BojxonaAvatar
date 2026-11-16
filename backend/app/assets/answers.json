@@ -8,5 +8,29 @@
   "id": "rail",
   "when": "temir yo'l (poyezd) orqali bojsiz tovar olib kirish limiti so'ralsa",
   "text": "Temir yo'l o'tkazish punktlari orqali besh yuz AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
+ },
+ {
+  "id": "limits",
+  "video": false,
+  "when": "bojsiz tovar olib kirish limitlari UMUMAN so'ralsa (aeroport, temir yo'l, avtomobil — aniq yo'l aytilmagan)",
+  "text": "Xalqaro aeroport orqali bir ming AQSh dollarigacha, temir yo'l va daryo o'tkazish punktlari orqali besh yuz dollargacha, avtomobil yoki piyoda o'tish punktlari orqali uch yuz dollargacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
+ },
+ {
+  "id": "car",
+  "video": false,
+  "when": "avtomobil (mashina) yoki piyoda o'tish orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "text": "Avtomobil yoki piyoda o'tish punktlari orqali uch yuz AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
+ },
+ {
+  "id": "post_courier",
+  "video": false,
+  "when": "xalqaro pochta yoki kuryer jo'natmalari uchun bojsiz limit so'ralsa",
+  "text": "Xalqaro pochta jo'natmalarida yuridik shaxs nomiga yuz dollargacha, jismoniy shaxsga kuryer orqali bir kalendar oyda ikki yuz dollargacha bojsiz."
+ },
+ {
+  "id": "currency",
+  "video": false,
+  "when": "valyutani olib kirish yoki olib chiqish (naqd pul) qoidasi so'ralsa",
+  "text": "Naqd xorijiy valyutani olib kirish cheklanmagan, lekin yuz million so'm ekvivalentidan oshsa deklaratsiya majburiy. Olib chiqishda yuz million so'mgacha hujjatsiz mumkin, ortig'iga ruxsatnoma yoki deklaratsiya kerak."
  }
 ]
