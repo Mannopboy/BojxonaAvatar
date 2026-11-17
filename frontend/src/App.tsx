@@ -9,6 +9,8 @@ import { ControlsPanel } from "./ControlsPanel";
 import { createIdleTimer } from "./idleTimer";
 import { getView, subscribe } from "./avatarViewStore";
 
+const GOODBYE_LINGER_MS = 900; // xayrlashuvdan keyin avatar og'zi yopilib, ovoz aks-sadosi so'nishi uchun: shuncha bo'sh tursa suhbat tugaydi
+
 export default function App() {
   const [state, setState] = useState<LiveState | "idle">("idle");
   const [error, setError] = useState("");
@@ -16,6 +18,12 @@ export default function App() {
   const [greetStart, setGreetStart] = useState(0); // birinchi (salom) audio keldi — salom videosi boshlanadi
   const [arriveKey, setArriveKey] = useState(0); // har ortishida avatar uzoqdan yurib keladi (AvatarVideo); shu vaqt ichida salom va ovoz kutadi
   const gateRef = useRef<ArriveGate>({ endsAt: 0 }); // yurib kelish tugaydigan payt (performance.now, ms; 0 — yo'q): liveAudio ovozni shu paytgacha ushlab turadi
+  const arrivedRef = useRef(false); // bu suhbatda yurib kelish allaqachon boshlangan
+  // KUTISH REJIMI: yo'lovchining birinchi gapi backendga ketdi, lekin SALOM hali tasdiqlanmagan (greeting/started kelmagan) — suhbat hali boshlanmagan: avatar chiqmaydi, tugma o'zgarmaydi.
+  // Shovqin yoki salomsiz gap: backend wake_ignored yuboradi va hech narsa bo'lmagandek kutishga qaytiladi.
+  const [wakePending, setWakePending] = useState(false);
+  const goodbyeRef = useRef(false); // yo'lovchi xayrlashdi (turn_complete.end): xayrlashuv ovozi tugagach suhbat o'zi tugaydi
+  const goodbyeFree = useRef(0); // xayrlashuvdan keyin avatar/ovoz bo'shagan payt (performance.now)
   const [answer, setAnswer] = useState<{ id: string; key: number } | null>(null); // backend tanlagan tayyor javob klipi
   const turnRef = useRef<TurnInfo>(newTurnInfo()); // javob holati (AvatarVideo: jumlalar orasida og'iz yopilib ketmasin, ovoz tugashi oldindan ma'lum)
   const levelRef = useRef(0); // avatar ovozining balandligi — og'iz FAQAT ovoz bor paytda qimirlaydi (AvatarVideo)
@@ -83,6 +91,17 @@ export default function App() {
     const id = window.setInterval(() => {
       const h = handleRef.current;
       if (!h) return;
+      if (goodbyeRef.current) {
+        // yo'lovchi xayrlashdi: xayrlashuv ovozi (va avatar og'zi) tugab, GOODBYE_LINGER_MS bo'sh tursa — suhbat tugaydi (jimlik taymeri kutilmaydi)
+        const now = performance.now();
+        if (h.isBusy()) goodbyeFree.current = 0;
+        else if (!goodbyeFree.current) goodbyeFree.current = now;
+        else if (now - goodbyeFree.current >= GOODBYE_LINGER_MS) {
+          goodbyeRef.current = false;
+          stop();
+        }
+        return;
+      }
       const step = timer.step(performance.now(), getView().endSec, h.isBusy());
       if (step === "finish") h.muteMic();
       else if (step === "stop") stop();
@@ -98,15 +117,30 @@ export default function App() {
     stopStandby();
     setError("");
     setState("connecting");
-    if (arriveEnabled()) {
-      gateRef.current.endsAt = performance.now() + ARRIVE_FALLBACK_S * 1000 + ARRIVE_GUARD_MS; // birinchi kadrdan keyin AvatarVideo aniqlashtiradi
-      setArriveKey((k) => k + 1);
+    arrivedRef.current = false;
+    goodbyeRef.current = false;
+    goodbyeFree.current = 0;
+    setWakePending(!!wakePcm);
+    // tugma: suhbat darhol boshlanadi — avatar yurib keladi; wake: faqat backend SALOMNI tasdiqlagach (onGreeting / onStarted) — shovqinda avatar ko'rinmaydi
+    if (!wakePcm) {
+      beginArrive();
+      setGreetKey((k) => k + 1); // avatar salom videosini kutadi (birinchi ovozda ijro etiladi); wake: salom videosi faqat backend salom bergach (onGreeting)
     }
-    if (!wakePcm) setGreetKey((k) => k + 1); // tugma: avatar salom videosini kutadi (birinchi ovozda ijro etiladi); wake: salom videosi faqat backend salom bergach (onGreeting)
     try {
       handleRef.current = await startLive({
         wake: wakePcm,
-        onGreeting: () => setGreetKey((k) => k + 1),
+        onGreeting: () => {
+          setWakePending(false);
+          beginArrive(); // gate ovoz kelishidan OLDIN qo'yiladi (backend greeting dan keyin darhol audio yuboradi)
+          setGreetKey((k) => k + 1);
+        },
+        onStarted: () => {
+          setWakePending(false);
+          beginArrive();
+        },
+        onGoodbye: () => {
+          goodbyeRef.current = true;
+        },
         onWakeIgnored: () => stop(), // shovqin edi — suhbat boshlanmaydi, kutishga qaytamiz
         onState: (s) => setState(s),
         onLevel: (v) => (levelRef.current = v),
@@ -132,9 +166,21 @@ export default function App() {
     }
   }
 
+  /** Avatar uzoqdan yurib keladi (arrive.mp4): to'siq qo'yiladi — salom videosi va ovoz shu tugaguncha kutadi. Har suhbatda bir marta. ?arrive=0 da hech narsa qilmaydi. */
+  function beginArrive() {
+    if (arrivedRef.current) return;
+    arrivedRef.current = true;
+    if (!arriveEnabled()) return;
+    gateRef.current.endsAt = performance.now() + ARRIVE_FALLBACK_S * 1000 + ARRIVE_GUARD_MS; // birinchi kadrdan keyin AvatarVideo aniqlashtiradi
+    setArriveKey((k) => k + 1);
+  }
+
   function stop() {
     handleRef.current?.stop();
     handleRef.current = null;
+    arrivedRef.current = false;
+    goodbyeRef.current = false;
+    setWakePending(false);
     gateRef.current.endsAt = 0;
     levelRef.current = 0;
     turnRef.current = newTurnInfo();
@@ -143,8 +189,11 @@ export default function App() {
     void startStandby(); // suhbat tugadi — yana salom kutamiz
   }
 
+  const shown = active && !wakePending; // suhbat HAQIQATAN boshlangan (kutish rejimida salom tasdiqlangan): tugma, «JONLI» belgisi
   const status =
-    state === "connecting"
+    wakePending
+      ? "🎙️ «Assalomu alaykum» deng — suhbat boshlanadi"
+      : state === "connecting"
       ? "⏳ Ulanmoqda…"
       : state === "listening"
       ? "🎙️ Tinglayapman — gapiravering"
@@ -166,7 +215,7 @@ export default function App() {
             <div className="brand-sub">Davlat bojxona qo'mitasi · jonli ovozli maslahat</div>
           </div>
         </div>
-        {active && <div className="livedot">● JONLI</div>}
+        {shown && <div className="livedot">● JONLI</div>}
       </header>
 
       <div className="scene">
@@ -177,7 +226,7 @@ export default function App() {
 
       <div className="controls">
         {error && <div className="err">{error}</div>}
-        {!active ? (
+        {!shown ? (
           <button className="talk" onClick={() => void start()}>
             <span className="talk-ic">🎙️</span>
             Suhbatni boshlash
@@ -189,7 +238,7 @@ export default function App() {
           </button>
         )}
         {/* Doim joyida (faqat ko'rinmaydi): paydo bo'lib-yo'qolsa tugmalar bloki balandligi o'zgarib, avatar o'lchami sakrab ketardi */}
-        <div className="hint" style={{ visibility: !active && !error ? "visible" : "hidden" }} aria-hidden={active || !!error}>
+        <div className="hint" style={{ visibility: !shown && !error ? "visible" : "hidden" }} aria-hidden={shown || !!error}>
           {standby
             ? "Mikrofonga «Assalomu alaykum» (yoki «Здравствуйте») deng — suhbat o'zi boshlanadi. Yoki tugmani bosing."
             : "Tugmani bosing, mikrofonga ruxsat bering va bojxona bo'yicha savolingizni ayting."}

@@ -57,8 +57,12 @@ export interface LiveOpts {
   onClips?: (ids: string[]) => void;
   /** KUTISH REJIMIDAN: yo'lovchining birinchi gapi (16 kHz PCM16) — salom darrov berilmaydi, backend shu gapga qarab suhbatni boshlaydi (salom bo'lsa salomlashadi) */
   wake?: Int16Array;
-  /** backend tayyor salomni (video + audio) ijro etishini aytdi — salom videosi kutiladi */
+  /** backend tayyor salomni (video + audio) ijro etishini aytdi — salom videosi kutiladi (kutish rejimida: suhbat boshlandi, avatar yurib keladi) */
   onGreeting?: () => void;
+  /** KUTISH REJIMI: backend suhbatni boshladi (boshqa tilda salom yoki salom + savol; tayyor salom videosi yo'q) — avatar yurib keladi. Salomsiz gapda bu xabar kelmaydi (wake_ignored) */
+  onStarted?: () => void;
+  /** yo'lovchi xayrlashdi (turn_complete.end): xayrlashuv ovozi tugagach suhbat tugaydi — mikrofon darhol yopiladi */
+  onGoodbye?: () => void;
   /** wake rejimida birinchi gap salom ham savol ham emas (shovqin) — suhbat boshlanmaydi */
   onWakeIgnored?: () => void;
   /** yo'lovchi gapiryapti (mikrofon balandligi chegaradan baland, har ~0.1 s) — suhbatni tugatish taymeri qayta boshlanadi */
@@ -73,7 +77,7 @@ function wsUrl(wake: boolean): string {
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, holdUntil, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored, onUserSpeech } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, holdUntil, turnRef, onClip, onClips, wake, onGreeting, onStarted, onGoodbye, onWakeIgnored, onUserSpeech } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -346,6 +350,8 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         } else if (m.type === "greeting") {
           greeted = false; // keyingi birinchi audio — tayyor salom (salom videosi, ovoz greetDelayS dan keyin)
           onGreeting?.();
+        } else if (m.type === "started") {
+          onStarted?.(); // kutish rejimi: suhbat boshlandi (salom tasdiqlandi)
         } else if (m.type === "wake_ignored") {
           awaitingReply = false;
           onWakeIgnored?.(); // shovqin / salom ham savol ham emas — kutish rejimiga qaytamiz
@@ -358,6 +364,10 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
         else if (m.type === "turn_complete") {
           awaitingReply = false;
           turnDone = true;
+          if (m.end === true) {
+            micMuted = true; // yo'lovchi xayrlashdi: yangi gap qabul qilinmaydi, xayrlashuv ovozi tugagach suhbat tugaydi (App)
+            onGoodbye?.();
+          }
           if (pend.length && !turnPlaying) startTurnPlayback(); // javob to'liq keldi: kutmasdan ijro
           if (turnRef) turnRef.current.done = true;
           // audio ijrosi tugagach + qisqa pauza (ovoz aks-sadosi mikrofonga tushmasin) mikrofon ochiladi

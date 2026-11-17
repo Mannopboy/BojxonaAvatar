@@ -2,7 +2,8 @@
 
 /ws/live bilan BIR XIL protokol (frontend o'zgarmaydi):
   brauzer → backend: {"type":"activity_start"} + PCM16 16kHz binar kadrlar + {"type":"activity_end"}  (yoki {"type":"text","text":...} — test)
-  backend → brauzer: {"type":"ready"}, PCM16 24kHz binar audio, {"type":"transcript","text":...}, {"type":"turn_complete"}, {"type":"error","msg":...}
+  backend → brauzer: {"type":"ready"}, PCM16 24kHz binar audio, {"type":"transcript","text":...}, {"type":"turn_complete"[, "end": true — yo'lovchi xayrlashdi, ovoz tugagach suhbat tugaydi]}, {"type":"error","msg":...}
+  wake (/ws/live?wake=1): suhbat FAQAT salomlashganda boshlanadi — {"type":"greeting"} (tayyor o'zbekcha salom) yoki {"type":"started"} (boshqa tilda salom / salom + savol); aks holda {"type":"wake_ignored"}
 
 Nega Live emas: Live modelida o'zbekcha talaffuz xatolari bor; gemini-3.8-flash-tts so'zlarni to'g'ri o'qiydi (foydalanuvchi namunalarni eshitib tanladi).
 ⚠️ TTS ga ko'rsatma ("... o'qi: matn") qo'shilmaydi: model uni ovoz chiqarib o'qib yuboradi (o'lchangan: 6.6 s o'rniga 15 s). Faqat javob matni yuboriladi.
@@ -55,6 +56,12 @@ TTS_SYSTEM = (
 )
 FALLBACK_TEXT = "Kechirasiz, savolingizni aniq eshitmadim. Iltimos, yana bir bor takrorlab bering."
 REASK_TEXT = "Kechirasiz, savolingizni takrorlang."  # savol tushunilmasa (shovqin, uzilgan gap) — uzoq o'ylamasdan qisqa qayta so'rash
+# Yo'lovchi xayrlashdi (ovozli gap): yo'lovchi tilida qisqa xayrlashuv (oldindan ovozlangan — kvota sarflanmaydi), so'ng suhbat o'zi tugaydi: turn_complete {"end": true}
+FAREWELL = {
+    "uz": "Xayr, hurmatli yo'lovchi! Sizga yaxshi yo'l tilayman.",
+    "ru": "До свидания, уважаемый пассажир! Счастливого пути!",
+    "en": "Goodbye, dear passenger! Have a safe journey.",
+}
 ERROR_TEXT = "Kechirasiz, hozir javob bera olmadim. Iltimos, savolingizni qayta takrorlang."
 
 _client: genai.Client | None = None
@@ -373,19 +380,24 @@ async def _llm_answer(contents: list) -> tuple[str | None, str]:
 
 
 WAKE_KINDS = ("greeting", "question", "other")
+TURN_KINDS = ("question", "goodbye", "other")  # suhbat o'rtasidagi gap: savol / xayrlashish (suhbat tugaydi) / e'tiborsiz
 WAKE_LANGS = ("uz", "ru", "en")
 # Birinchi gapni tez tasniflash uchun KICHIK prompt (to'liq TTS_SYSTEM + faktlar bilan chaqiruv 4-9 s, bu — ~2 s; o'lchangan)
 WAKE_CLASSIFY = (
     "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar oldiga kelib BIRINCHI marta gapirdi. Faqat JSON qaytar. "
+    "Suhbat FAQAT yo'lovchi SALOMLASHGANDA boshlanadi — salomsiz hech narsa suhbatni boshlamaydi. "
     "kind: 'greeting' — yo'lovchi FAQAT salomlashdi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
-    "'qalaysiz' kabi qo'shimcha ham bo'lishi mumkin); 'question' — savol yoki so'rov berdi (salomlashib boshlagan bo'lsa ham); "
-    "'other' — gapirish emas (shovqin, yo'tal, musiqa, jimlik), mazmuni noaniq yoki kioskka aloqasi yo'q (telefonda yoki boshqa odam bilan gaplashyapti). "
-    "lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
+    "'qalaysiz' kabi qo'shimcha ham bo'lishi mumkin); 'question' — yo'lovchi AVVAL SALOMLASHDI va keyin savol yoki so'rov berdi; "
+    "'other' — salomlashish ANIQ eshitilmagan HAMMA narsa: shovqin, yo'tal, musiqa, jimlik, salomsiz savol yoki gap, boshqa odam bilan suhbat, telefon, noaniq yoki uzilgan gap. "
+    "Shubha bo'lsa 'other'. lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
 )
 # Suhbat o'rtasidagi har bir ovozli savol: tushunarlimi? (shubha bo'lsa 'question' — keraksiz qayta so'ramaslik uchun)
 TURN_CLASSIFY = (
     "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar bilan suhbat davomida gapirdi. Faqat JSON qaytar. "
-    "kind: 'question' — yo'lovchi kioskka qaratib gapirdi: savol, so'rov, aniqlashtirish, javobga munosabat (rahmat, xayr, tushunmadim, yana ayting) yoki salom; "
+    "kind: 'question' — yo'lovchi kioskka qaratib gapirdi: savol, so'rov, aniqlashtirish, javobga munosabat (rahmat, tushunmadim, yana ayting) yoki salom; "
+    "'goodbye' — yo'lovchi XAYRLASHDI va suhbatni tugatmoqda (masalan 'Xayr', 'Ko'rishguncha', 'Sog' bo'ling', 'Rahmat, xayr', 'Yaxshi qoling', 'До свидания', 'Пока', 'Всего доброго', "
+    "'Спасибо, до свидания', 'Goodbye', 'Bye');faqat xayrlashuv so'zi XAYRLASHISH ma'nosida bo'lsa (o'zbekcha 'hayr' = 'yo'q' ma'nosida yoki gap davomida bo'lsa — 'question'); "
+    "xayrlashib turib yana savol bersa — 'question'; faqat 'rahmat' (xayrlashmasdan) — 'question'; "
     "'other' — gapirish emas (shovqin, yo'tal, musiqa, jimlik) yoki mazmuni UMUMAN tushunarsiz/uzilgan yoki kioskka aloqasi yo'q (telefonda yoki boshqa odam bilan gaplashyapti). "
     "Shubha bo'lsa 'question'. lang: 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
 )
@@ -395,30 +407,30 @@ GREETING_OTHER = {
 }
 
 
-def parse_wake(j: object) -> tuple[str, str]:
+def parse_wake(j: object, kinds: tuple[str, ...] = WAKE_KINDS) -> tuple[str, str]:
     """LLM JSON javobini (kind, lang) ga keltiradi. Noma'lum/buzuq qiymat xavfsiz tomonga: kind aniq bo'lmasa — 'other' (e'tiborsiz), til — 'uz'."""
     d = j if isinstance(j, dict) else {}
-    kind = d.get("kind") if d.get("kind") in WAKE_KINDS else "other"
+    kind = d.get("kind") if d.get("kind") in kinds else "other"
     lang = d.get("lang") if d.get("lang") in WAKE_LANGS else "uz"
     return kind, lang
 
 
-async def _llm_classify(user_part: types.Part, system: str = WAKE_CLASSIFY) -> tuple[str, str]:
-    """Gap: (kind, lang). Kichik prompt va 2 maydonli javob — tez (~2 s)."""
+async def _llm_classify(user_part: types.Part, system: str = WAKE_CLASSIFY, kinds: tuple[str, ...] = WAKE_KINDS) -> tuple[str, str]:
+    """Gap: (kind, lang). Kichik prompt va 2 maydonli javob — tez (~2 s). kinds: birinchi gap uchun WAKE_KINDS, suhbat o'rtasi uchun TURN_KINDS."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=system, temperature=0.0, max_output_tokens=60, response_mime_type="application/json")
     kwargs["response_schema"] = {
         "type": "OBJECT",
-        "properties": {"kind": {"type": "STRING", "enum": list(WAKE_KINDS)}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
+        "properties": {"kind": {"type": "STRING", "enum": list(kinds)}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
         "required": ["kind", "lang"],
     }
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[user_part])], config=types.GenerateContentConfig(**kwargs))
     try:
-        return parse_wake(json.loads(r.text or "{}"))
+        return parse_wake(json.loads(r.text or "{}"), kinds)
     except ValueError:
-        return parse_wake({})
+        return parse_wake({}, kinds)
 
 
 def _finish_timing(state: dict, t_end: float) -> dict:
@@ -503,24 +515,52 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
         history.append(types.Content(role="model", parts=[types.Part(text=text)]))
 
 
+CLS_GRACE_S = 0.4  # javob tasniflashdan oldin tayyor bo'lsa: xayrlashishni aniqlash uchun tasniflashni shuncha kutamiz
+CLS_LATE_S = 0.3  # javob yetkazilgach tasniflash natijasini shuncha kutamiz (turn_complete kechikmasin)
+
+
+async def _cls_result(cls: asyncio.Task, timeout: float) -> tuple[str, str] | None:
+    """Tasniflash vazifasi (_timed(...)) natijasi: (kind, lang) yoki None (tugamadi/xato). Vazifa bekor qilinmaydi (shield)."""
+    try:
+        (kind, lang), _ms = await asyncio.wait_for(asyncio.shield(cls), timeout)
+        return kind, lang
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _farewell(ws: WebSocket, lang: str, state: dict) -> None:
+    """Xayrlashuv: yo'lovchi tilida oldindan ovozlangan qisqa matn; turn_complete {"end": true} — brauzer/ilova ovoz tugagach suhbatni o'zi tugatadi."""
+    state["t_first"] = time.monotonic()
+    state["delivering"] = True
+    await _say_cached(ws, FAREWELL.get(lang, FAREWELL["uz"]))
+    state["voice"] = "cache"
+    state["end"] = True
+
+
 async def respond(ws: WebSocket, user_part: types.Part, history: list, state: dict, t_end: float) -> None:
     """Bitta javob: LLM matni -> bitta TTS oqimi -> brauzerga. Ovozli savolda javob chaqiruvi bilan PARALLEL kichik tasniflash ishlaydi: gap tushunarsiz (shovqin, uzilgan) bo'lsa
     uzoq o'ylamasdan qisqa qayta so'raladi (aks holda eng uzoq kutish aynan shu holatda edi: 3.3–6.9 s), tushunarli bo'lsa javob allaqachon yo'lda (kechikish qo'shilmaydi)."""
     contents = history[-HISTORY_TURNS * 2:] + [types.Content(role="user", parts=[user_part])]
     state.setdefault("spoke", False)
     ans = asyncio.create_task(_timed(_llm_answer(contents)))
-    cls = asyncio.create_task(_timed(_llm_classify(user_part, TURN_CLASSIFY))) if user_part.inline_data is not None else None
+    cls = asyncio.create_task(_timed(_llm_classify(user_part, TURN_CLASSIFY, TURN_KINDS))) if user_part.inline_data is not None else None
     try:
         if cls is not None:
             done, _ = await asyncio.wait({ans, cls}, return_when=asyncio.FIRST_COMPLETED)
-            if ans not in done:  # tasniflash birinchi tugadi
-                kind, cms = "question", None
+            if cls in done:  # tasniflash birinchi (yoki javob bilan birga) tugadi
+                kind, lang, cms = "question", "uz", None
                 try:
-                    (kind, _lang), cms = cls.result()
+                    (kind, lang), cms = cls.result()
                 except Exception as e:  # noqa: BLE001
                     log.warning("tasniflash xatosi: %s: %s", type(e).__name__, str(e)[:160])
-                state["understand_ms"] = cms
-                if kind == "other":
+                if ans not in done:
+                    state["understand_ms"] = cms
+                if kind == "goodbye":
+                    ans.cancel()
+                    log.info("xayrlashish (%s): suhbat tugaydi (%s ms)", lang, cms)
+                    await _farewell(ws, lang, state)
+                    return
+                if kind == "other" and ans not in done:
                     ans.cancel()
                     log.info("savol tushunarsiz: qisqa qayta so'rash (%s ms)", cms)
                     state["t_first"] = time.monotonic()
@@ -529,10 +569,20 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list, state: di
                     state["voice"] = "cache"
                     state["reask"] = True
                     return
+            else:  # javob tasniflashdan oldin tayyor bo'ldi: xayrlashishni o'tkazib yubormaslik uchun tasniflashni biroz kutamiz (<= CLS_GRACE_S)
+                res = await _cls_result(cls, CLS_GRACE_S)
+                if res and res[0] == "goodbye":
+                    log.info("xayrlashish (%s): javob tayyor edi, xayrlashuv beriladi", res[1])
+                    await _farewell(ws, res[1], state)
+                    return
         (clip, text), ams = await ans
         state["answer_ms"] = ams
         state.setdefault("understand_ms", ams)  # javob tasniflashdan oldin tayyor bo'ldi — tushunish shu vaqtga teng
         await _deliver(ws, clip, text, user_part, history, state)
+        if cls is not None and not state.get("end"):
+            res = await _cls_result(cls, CLS_LATE_S)  # tasniflash kech tugagan bo'lsa ham: yo'lovchi xayrlashgan edi — javobdan keyin suhbat tugaydi
+            if res and res[0] == "goodbye":
+                state["end"] = True
     except WebSocketDisconnect:
         raise
     except asyncio.CancelledError:
@@ -551,7 +601,9 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list, state: di
 
 
 async def respond_first(ws: WebSocket, user_part: types.Part, history: list, state: dict, t_end: float) -> bool:
-    """WAKE rejimi: birinchi gap. Salom (o'zbekcha — tayyor salom videosi/audio; boshqa tilda — shu tilda TTS), savol (javob) yoki shovqin (e'tiborsiz).
+    """WAKE rejimi: birinchi gap. Suhbat FAQAT SALOMLASHGANDA boshlanadi: salom (o'zbekcha — tayyor salom videosi/audio, {"type":"greeting"}; boshqa tilda — shu tilda TTS), salom + savol (javob),
+    hamma boshqa narsa (shovqin, salomsiz savol/gap, boshqa odam bilan suhbat) — e'tiborsiz (wake_ignored). Suhbat boshlanganini brauzerga {"type":"greeting"} yoki {"type":"started"} bildiradi
+    (yurib kelish shundan boshlanadi: shovqinda avatar ko'rinmasin).
     Tasniflash (kichik prompt, ~2 s) va odatdagi javob (to'liq prompt) PARALLEL boshlanadi: salom/shovqin bo'lsa javob bekor qilinadi, savol bo'lsa javob allaqachon yo'lda
     (savolga javob kechikmaydi). Qaytaradi: True — suhbat boshlandi, False — e'tiborsiz qoldirildi (brauzerga wake_ignored yuborildi)."""
     contents = [types.Content(role="user", parts=[user_part])]
@@ -582,13 +634,15 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
                 state["voice"] = "cache"
                 greet_text = settings.greeting_text
             else:
+                await ws.send_text(json.dumps({"type": "started"}))  # suhbat boshlandi (salom tasdiqlandi, tayyor salom videosi yo'q): avatar yurib keladi
                 greet_text = GREETING_OTHER[lang]
                 await _deliver(ws, None, greet_text, types.Part(text="(yo'lovchi salomlashdi)"), history, state)
                 return True  # tarix _deliver ichida yangilandi
             history.append(types.Content(role="user", parts=[types.Part(text="(yo'lovchi salomlashdi)")]))
             history.append(types.Content(role="model", parts=[types.Part(text=greet_text)]))
             return True
-        (clip, text), ams = await answer  # savol: javob parallel tayyorlanayotgan edi
+        await ws.send_text(json.dumps({"type": "started"}))  # salomlashib savol berdi: suhbat boshlandi (avatar yurib keladi), javob parallel tayyorlanayotgan edi
+        (clip, text), ams = await answer
         state["answer_ms"] = ams
         await _deliver(ws, clip, text, user_part, history, state)
         return True
@@ -648,6 +702,8 @@ async def handle(ws: WebSocket, wake: bool = False) -> None:
         finally:
             if started and not cancelled:
                 msg: dict = {"type": "turn_complete"}
+                if state.get("end"):
+                    msg["end"] = True  # yo'lovchi xayrlashdi: ovoz tugagach brauzer/ilova suhbatni o'zi tugatadi
                 timing = _finish_timing(state, t_end)
                 if timing:
                     msg["timing"] = timing
