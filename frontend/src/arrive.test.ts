@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARRIVE_FALLBACK_S, ARRIVE_GUARD_MS, ARRIVE_START_TIMEOUT_MS, arriveEnabled, gateRemainingS } from "./arrive";
+import { ARRIVE_FALLBACK_S, ARRIVE_FILE, ARRIVE_GUARD_MS, ARRIVE_START_TIMEOUT_MS, FAR_LOOK, arriveEnabled, farStyle, gateRemainingS } from "./arrive";
 
 describe("arriveEnabled", () => {
   it("standart: yoqilgan", () => {
@@ -30,12 +30,33 @@ describe("gateRemainingS", () => {
   });
 });
 
-describe("yurib kelish doimiylari", () => {
-  it("klip davomiyligi ~4 s dan oshmaydi, oyna va taymaut mantiqiy", () => {
-    expect(ARRIVE_FALLBACK_S).toBeGreaterThan(3);
-    expect(ARRIVE_FALLBACK_S).toBeLessThanOrEqual(4.2);
+describe("yaqinlashish klipi doimiylari (approach.json)", () => {
+  it("klip qisqa (1–2.5 s): oldinga 1–2 qadam; oyna va taymaut mantiqiy", () => {
+    expect(ARRIVE_FILE).toBe("approach.mp4");
+    expect(ARRIVE_FALLBACK_S).toBeGreaterThan(1);
+    expect(ARRIVE_FALLBACK_S).toBeLessThanOrEqual(2.5);
     expect(ARRIVE_GUARD_MS).toBeGreaterThan(0);
     expect(ARRIVE_GUARD_MS).toBeLessThan(500);
     expect(ARRIVE_START_TIMEOUT_MS).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe("kutish ko'rinishi (FAR_LOOK)", () => {
+  it("avatar yo'q bo'lib qolmaydi: biroz kichikroq (0.6–0.95) va xira (0.2–0.8), kadr ichida", () => {
+    expect(FAR_LOOK.scale).toBeGreaterThan(0.6);
+    expect(FAR_LOOK.scale).toBeLessThan(0.95);
+    expect(FAR_LOOK.brightness).toBeGreaterThan(0.2);
+    expect(FAR_LOOK.brightness).toBeLessThan(0.8);
+    // kichraygan kadr (0..scale) siljish bilan kadr chegarasidan chiqmaydi
+    expect(FAR_LOOK.dxPct).toBeGreaterThanOrEqual(0);
+    expect(FAR_LOOK.dyPct).toBeGreaterThanOrEqual(0);
+    expect(FAR_LOOK.dxPct + FAR_LOOK.scale * 100).toBeLessThanOrEqual(100.01);
+    expect(FAR_LOOK.dyPct + FAR_LOOK.scale * 100).toBeLessThanOrEqual(100.01);
+  });
+  it("farStyle: CSS qatorlari (transform-origin 0 0 uchun)", () => {
+    const s = farStyle({ scale: 0.8, dxPct: 10, dyPct: 12.5, brightness: 0.4 });
+    expect(s.transform).toBe("translate(10%, 12.5%) scale(0.8)");
+    expect(s.filter).toBe("brightness(0.4)");
+    expect(farStyle().transform).toContain(String(FAR_LOOK.scale));
   });
 });

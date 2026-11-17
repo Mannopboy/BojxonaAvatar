@@ -61,9 +61,10 @@ body {
 .scene { position: relative; min-height: 0; background: #000; }
 /* AvatarVideo.tsx: 3 ta to'liq kadrli video bir-birining ustida (xira-o'tish bilan almashadi). O'lcham JS da o'rnatiladi (sahnaga sig'adi, 9:16). */
 .avatar-video { position: absolute; inset: 0; overflow: hidden; background: #000; isolation: isolate; }
-.avatar-rig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); transition: opacity 400ms linear; }
-/* Kutish rejimida (suhbat yo'q) avatar ko'rinmaydi — qora ekran: suhbat boshlanganda u uzoqdan yurib keladi (arrive.mp4, AvatarVideo.tsx). ?arrive=0 da bu sinf qo'yilmaydi. */
-.avatar-rig.off { opacity: 0; }
+.avatar-rig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+/* Jonli qatlamlar (kutish, gapirish, salom, javob) bitta sahnada. Kutish ko'rinishi (.far, uslub — arrive.ts farStyle): biroz kichikroq va xira, kadrning yuqori-chap burchagidan
+   (transform-origin 0 0; siljish kadr o'lchamining foizi). Suhbat boshlanganda yurib kelish klipi ustidan yopiladi, sahna esa ostida oddiy ko'rinishga o'tadi (700 ms). ?arrive=0 da .far yo'q. */
+.avatar-stage { position: absolute; inset: 0; transform-origin: 0 0; transition: transform 700ms ease-in-out, filter 700ms ease-in-out; will-change: transform, filter; }
 .avatar-rig video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; pointer-events: none; will-change: opacity; }
 /* Yashirin klip opacity: 0 emas, 0.01: aks holda brauzer uni chizmay qo'yadi va ko'rinishi bilan bir kadr qora chiqishi mumkin.
    Ustida har doim to'liq noshaffof .on klip turadi, shuning uchun 1% sezilmaydi. */
