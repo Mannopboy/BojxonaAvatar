@@ -138,14 +138,19 @@ almashinuvi seziladi). Salom yaxshi ko'rinadi, chunki uning videosi O'Z audiosi 
 ### Salom bilan boshlash (kutish rejimi)
 Tugma bosish shart emas: sahifa ochiq va suhbat boshlanmagan paytda mikrofon **mahalliy** tinglanadi (`src/wakeListener.ts` + `src/wakeVad.ts`; serverga hech narsa yuborilmaydi). Yo'lovchi avatar oldiga kelib
 gapirsa — birinchi gap ajratib olinadi (2 blok > 0.03 RMS bilan boshlanadi, 0.8 s jimlikda tugaydi, ≤ 8 s) va `/ws/live?wake=1` orqali backendga yuboriladi. `tts_voice.respond_first`: bitta kichik LLM chaqiruvi
-(`WAKE_CLASSIFY`, ~2 s) gapni **salom / savol / shovqin** va **tilga** (uz/ru/en) ajratadi; to'liq javob chaqiruvi PARALLEL boshlanadi (savol bo'lsa kutmasdan tayyor, salom/shovqin bo'lsa bekor qilinadi):
+(`WAKE_CLASSIFY`, ~2 s) gapni **salom / salom + savol / boshqa** va **tilga** (uz/ru/en) ajratadi; to'liq javob chaqiruvi PARALLEL boshlanadi (salom + savol bo'lsa kutmasdan tayyor, salom/boshqa bo'lsa bekor qilinadi).
+**Suhbat FAQAT yo'lovchi SALOMLASHGANDA boshlanadi** — shovqin, yo'tal, musiqa, salomsiz savol yoki gap, boshqa odam bilan suhbat suhbatni boshlamaydi (shubhada ham «boshqa»):
 
 | Yo'lovchi gapi | Natija |
 |---|---|
 | o'zbekcha salom («Assalomu alaykum») | `{"type":"greeting"}` + tayyor salom (video + audio, avvalgidek) |
-| ruscha / inglizcha salom («Здравствуйте», «Hello») | shu tilda salom matni (TTS), **salom videosi yo'q** — u o'zbekcha audioga yaratilgan |
-| savol (salomli yoki salomsiz) | odatdagi javob (tayyor klip yoki TTS), qayta salomlashmaydi |
-| shovqin / kioskka aloqasi yo'q gap | `{"type":"wake_ignored"}` — brauzer kutishga qaytadi |
+| ruscha / inglizcha salom («Здравствуйте», «Hello») | `{"type":"started"}` + shu tilda salom matni (TTS), **salom videosi yo'q** — u o'zbekcha audioga yaratilgan |
+| salom + savol («Assalomu alaykum, aeroportdan qancha olib kirsa bo'ladi?») | `{"type":"started"}` + odatdagi javob (tayyor klip yoki TTS), qayta salomlashmaydi |
+| shovqin, **salomsiz savol/gap**, kioskka aloqasi yo'q gap | `{"type":"wake_ignored"}` — brauzer kutishga qaytadi, **avatar umuman chiqmaydi** (yurib kelish `greeting`/`started` dan keyin boshlanadi) |
+
+**Xayrlashish:** suhbat o'rtasida yo'lovchi xayrlashsa («Xayr», «Ko'rishguncha», «Rahmat, xayr», «До свидания», «Bye») — tasniflash (`TURN_CLASSIFY`, `kind: goodbye`) buni ushlaydi, avatar yo'lovchi tilida qisqa xayrlashuv aytadi
+(`FAREWELL`, oldindan ovozlangan, TTS kvotasi sarflanmaydi; yangi matn: `python -m app.gen_audio_cache`) va `{"type":"turn_complete","end":true}` yuboriladi: brauzer mikrofonni yopadi, ovoz va avatar og'zi tugagach (+0,9 s) suhbat **o'zi tugaydi**
+(kutish rejimi). Faqat «rahmat» yoki gap davomidagi «hayr» (= «yo'q») xayrlashish emas. Tasniflash javobdan kech tugasa ham (>0,4 s) javob aytiladi, lekin suhbat baribir tugaydi.
 
 - «Suhbatni boshlash» tugmasi saqlangan (zaxira; u bosilsa kutish to'xtaydi va salom darrov beriladi). «Tugatish» dan keyin yana salom kutiladi. Mikrofon ruxsati `denied` bo'lsa kutish yoqilmaydi; `?manual=1` — kutishni o'chiradi.
 - **Kiosk Chrome**: mikrofon ruxsati oldindan berilgan bo'lsin (doimiy profilda bir marta «Ruxsat» yoki siyosat `AudioCaptureAllowedUrls`), `--autoplay-policy=no-user-gesture-required` tavsiya (ayrim brauzerlarda
@@ -225,7 +230,8 @@ chegara, zoom min/max, hamma qatlam birga suriladi, 400 ms debounce va qayta och
 **Yurib kelish** (`arrive.mp4`, yig'ilgan `dist` + soxta WebSocket, backend kerak emas): `npm run build && node scripts/test-arrive.mjs` — A) kutishda avatar yo'q, tugma bosilgach klip 0,8 s ichida, salom videosi klip tugagach, salom ovozi videodan ~1,49 s keyin (sinxron),
 tugatilganda yana qora; B) `?arrive=0` eski ko'rinish; C) klip yuklanmasa 2 s ichida eski tartib; D) tayyor javob klipi yurib kelish tugagach boshlanadi (~2 daqiqa). `test-avatar-transitions.mjs` `?arrive=0` bilan yuradi (qatlam o'tishlari alohida sinaladi); `test-wake.mjs` klip uchun +5 s ko'proq kutadi.
 
-**Salom bilan boshlash** (haqiqiy backend + Chrome soxta mikrofon): `TARGET=http://127.0.0.1:5173/ SCEN="nom|fayl.wav|kutilgan,..." node scripts/test-wake.mjs` — kutilgan: `uz_greeting`, `ru_greeting`, `question`, `ignored` (shovqin),
+**Salom bilan boshlash va xayrlashish** (haqiqiy backend + Chrome soxta mikrofon): `TARGET=http://127.0.0.1:5173/ SCEN="nom|fayl.wav|kutilgan,..." node scripts/test-wake.mjs` — kutilgan: `uz_greeting`, `ru_greeting`, `question` (SALOMLASHIB savol), `ignored` (shovqin yoki salomsiz savol/gap: avatar chiqmaydi),
+`goodbye` (salom → … → «Xayr» → xayrlashuv → suhbat o'zi tugaydi; fayl: 3 s jimlik + salom + 22 s jimlik + xayr + 10 s; `WAIT_S=55`),
 `nothing` (jimlik). Har sahnada alohida Chrome; fayl: 3 s jimlik + gap + ~14 s jimlik. `AUTOPLAY=0` — autoplay flagsiz. ⚠️ Salom/shovqin sahnalari LLM chaqiradi, ruscha salom va savol 1 ta TTS so'rovi sarflaydi.
 
 **Haqiqiy odamdek sinov** (haqiqiy backend, ovozli savollar): `REAL=1 REAL_S=138 TARGET=http://127.0.0.1:5173/ MIC_WAV=<savollar.wav> node scripts/test-avatar-transitions.mjs` — Chrome soxta

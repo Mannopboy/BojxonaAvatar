@@ -1,7 +1,9 @@
 // "Salom bilan boshlash" (kutish rejimi) brauzer testi — haqiqiy backend + Chrome soxta mikrofon (WAV fayl):
 //   TARGET=http://127.0.0.1:5173/ SCEN="nom|fayl.wav|kutilgan,..." node scripts/test-wake.mjs
 // Kutilgan: uz_greeting (o'zbekcha salom → salom videosi + tayyor salom audio) · ru_greeting (ruscha salom → rus tilida javob, salom videosi YO'Q) ·
-//           question (salomsiz/salomli savol → javob: tayyor klip yoki TTS) · ignored (shovqin → wake_ignored, kutishga qaytadi) · nothing (jimlik → hech narsa)
+//           question (SALOMLASHIB savol → javob: tayyor klip yoki TTS) · ignored (shovqin yoki SALOMSIZ savol/gap → wake_ignored, avatar chiqmaydi, kutishga qaytadi) ·
+//           goodbye (salom → ... → «Xayr» → xayrlashuv → suhbat o'zi tugaydi) · nothing (jimlik → hech narsa)
+// Suhbat FAQAT salomlashganda boshlanadi; avatar yurib kelishi ham faqat salom tasdiqlangach (greeting/started) boshlanadi.
 // Har sahnada alohida Chrome (soxta mikrofon fayli har safar boshidan). AUTOPLAY=0 — autoplay flagsiz (brauzer AudioContext ni to'xtatib qo'yishini tekshirish).
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -46,9 +48,10 @@ async function scenario({ name, wav, expect }) {
     });
     await page.evaluateOnNewDocument(() => {
       window.__ev = [];
-      const seen = { g: false, a: false };
+      const seen = { g: false, a: false, r: false };
       const tick = () => {
-        const g = document.querySelector(".rig-greeting"), a = document.querySelector(".rig-answer");
+        const g = document.querySelector(".rig-greeting"), a = document.querySelector(".rig-answer"), r = document.querySelector(".rig-arrive");
+        if (r && r.classList.contains("on") && !seen.r) { seen.r = true; window.__ev.push(["arrive-video", Date.now()]); }
         if (g && g.classList.contains("on") && !seen.g) { seen.g = true; window.__ev.push(["greeting-video", Date.now()]); }
         if (a && a.classList.contains("on") && !seen.a) { seen.a = true; window.__ev.push(["answer-video", Date.now()]); }
         requestAnimationFrame(tick);
@@ -61,6 +64,7 @@ async function scenario({ name, wav, expect }) {
       const types = ws.text.map((x) => x.m.type);
       if (expect === "nothing") return false;
       if (expect === "ignored") return types.includes("wake_ignored");
+      if (expect === "goodbye") return ws.text.some((x) => x.m.type === "turn_complete" && x.m.end === true);
       if (expect === "uz_greeting") return types.filter((t) => t === "turn_complete").length >= 1;
       return types.includes("turn_complete") || types.includes("clip");
     };
@@ -74,6 +78,9 @@ async function scenario({ name, wav, expect }) {
     const transcript = ws.text.filter((x) => x.m.type === "transcript").map((x) => x.m.text).join(" ");
     const ev = await page.evaluate(() => window.__ev);
     const btn = await page.evaluate(() => ({ stop: !!document.querySelector(".talk.stop"), label: document.querySelector(".talk")?.textContent?.trim(), status: document.querySelector(".status")?.textContent || "", hint: document.querySelector(".hint")?.textContent || "" }));
+    const rigOff = await page.evaluate(() => document.querySelector(".avatar-rig")?.classList.contains("off") ?? null);
+    const arriveAt = ev.find((e) => e[0] === "arrive-video")?.[1];
+    const confirmAt = ws.text.find((x) => x.m.type === "greeting" || x.m.type === "started")?.t; // backend suhbat boshlanganini tasdiqladi
     const sec = ws.bin / 48000;
     console.log(`  vaqt ${rel()} s | ws: ${ws.urls.map((u) => u.url.replace(/^wss?:\/\/[^/]+/, "") + "@" + rel(u.t) + "s").join(", ") || "yo'q"} | xabarlar: ${types.join(",")} | audio ${sec.toFixed(1)} s | video: ${ev.map((e) => e[0] + "@" + rel(e[1]) + "s").join(", ") || "-"}`);
     console.log(`  xabar vaqtlari: ${ws.text.map((x) => x.m.type + "@" + rel(x.t) + "s").join(" ")}`);
@@ -86,6 +93,7 @@ async function scenario({ name, wav, expect }) {
       ok("backend 'greeting' belgisini yubordi", types.includes("greeting"));
       ok("tayyor salom matni va audio (~6 s)", /Assalomu alaykum/.test(transcript) && sec >= 4.5, `${sec.toFixed(1)} s`);
       ok("salom videosi ijro etildi", ev.some((e) => e[0] === "greeting-video"));
+      ok("avatar yurib keldi — salom TASDIQLANGANDAN keyin (oldin emas)", arriveAt !== undefined && confirmAt !== undefined && arriveAt >= confirmAt - 50, `tasdiq→yurib kelish ${arriveAt && confirmAt ? ((arriveAt - confirmAt) / 1000).toFixed(2) : "?"} s`);
       ok("suhbat ketyapti (Tugatish tugmasi)", btn.stop);
     } else if (expect === "ru_greeting") {
       ok("ws ?wake=1", ws.urls.some((u) => u.url.includes("wake=1")));
@@ -93,17 +101,34 @@ async function scenario({ name, wav, expect }) {
       ok("javob matni rus tilida (kirill)", /[А-Яа-я]{4}/.test(transcript), transcript.slice(0, 60));
       ok("rus tilida ovozli javob keldi (TTS)", sec >= 2, `${sec.toFixed(1)} s`);
       ok("o'zbekcha salom videosi ijro etilmadi", !ev.some((e) => e[0] === "greeting-video"));
+      ok("backend 'started' belgisini yubordi (suhbat boshlandi)", types.includes("started"));
+      ok("avatar yurib keldi", arriveAt !== undefined);
       ok("suhbat ketyapti", btn.stop);
     } else if (expect === "question") {
+      // «question» = SALOMLASHIB savol berdi (salomsiz savol suhbatni boshlamaydi — «ignored»)
       ok("ws ?wake=1", ws.urls.some((u) => u.url.includes("wake=1")));
       ok("'greeting' belgisi yo'q (savolga to'g'ridan-to'g'ri javob)", !types.includes("greeting"));
+      ok("backend 'started' belgisini yubordi (suhbat boshlandi)", types.includes("started"));
       ok("javob keldi (tayyor klip yoki ovoz)", types.includes("clip") || sec >= 2, types.includes("clip") ? "tayyor klip" : `${sec.toFixed(1)} s audio`);
+      ok("avatar yurib keldi, javob undan KEYIN", arriveAt !== undefined);
       ok("suhbat ketyapti", btn.stop);
     } else if (expect === "ignored") {
+      // shovqin YOKI salomsiz gap/savol: suhbat boshlanmaydi, avatar umuman chiqmaydi
       ok("ws ochildi va backend wake_ignored dedi", types.includes("wake_ignored"));
       ok("javob audiosi yo'q", ws.bin === 0);
+      ok("'greeting'/'started' belgisi yo'q", !types.includes("greeting") && !types.includes("started"));
       ok("salom videosi yo'q", !ev.some((e) => e[0] === "greeting-video"));
+      ok("avatar chiqmadi (yurib kelish boshlanmadi, ekran qora)", arriveAt === undefined && rigOff === true, `rigOff=${rigOff}`);
       ok("kutish rejimiga qaytdi (Tugatish tugmasi yo'q)", !btn.stop, btn.label);
+    } else if (expect === "goodbye") {
+      // salom (suhbat boshlanadi) → yo'lovchi XAYRLASHADI → xayrlashuv ovozi → suhbat o'zi tugaydi (kutish rejimi, qora ekran)
+      const endMsg = ws.text.find((x) => x.m.type === "turn_complete" && x.m.end === true);
+      ok("salom bilan suhbat boshlandi (greeting)", types.includes("greeting"));
+      ok("backend xayrlashuvni yubordi (turn_complete.end = true)", !!endMsg);
+      ok("xayrlashuv matni (o'zbekcha)", /Xayr, hurmatli yo'lovchi/.test(transcript), transcript.slice(-70));
+      ok("suhbat o'zi tugadi (Tugatish tugmasi yo'q, kutish rejimi)", !btn.stop, `tugma: ${btn.label}`);
+      ok("avatar yana yo'q bo'ldi (qora ekran)", rigOff === true, `rigOff=${rigOff}`);
+      ok("kutish holati yozuvi qaytdi", /deng/.test(btn.status), btn.status);
     } else if (expect === "nothing") {
       ok("jimlikda hech qanday ws ochilmadi", ws.urls.length === 0);
       ok("kutish rejimi yoqilgan (holat yozuvi)", /deng/.test(btn.status), btn.status);
