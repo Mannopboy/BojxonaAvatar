@@ -1,5 +1,5 @@
 """Qat'iy matnlarni ASOSIY TTS ovozi bilan ovozlab `app/assets/audio_cache/<sha1>.pcm` ga yozadi (git'da turadi — kvota sarflanmaydi, ovoz har doim bir xil):
-video'siz tayyor javoblar (answers.json, "video": false), qayta so'rash, «eshitmadim», xato matnlari va xayrlashuv (uz/ru/en).
+video'siz tayyor javoblar (answers.json, "video": false), qayta so'rash, «eshitmadim», xato matnlari, xayrlashuv (uz/ru/en), «qanday yordam bera olaman?» (salomdan keyin), qidirish to'ldiruvchisi va «aniq ma'lumot topa olmadim» (uz/ru/en).
 
     cd backend && python -m app.gen_audio_cache          # GEMINI_API_KEY kerak; mavjud fayllar qayta ovozlanmaydi
     python -m app.gen_audio_cache --force                # hammasini qayta ovozlash (matn yoki ovoz o'zgarsa)
@@ -15,7 +15,7 @@ from . import tts_voice as T
 
 
 async def main(force: bool) -> int:
-    texts = [a["text"] for a in T.ANSWERS if not a.get("video", True)] + [T.REASK_TEXT, T.FALLBACK_TEXT, T.ERROR_TEXT] + list(T.FAREWELL.values())
+    texts = [a["text"] for a in T.ANSWERS if not a.get("video", True)] + [T.REASK_TEXT, T.FALLBACK_TEXT, T.ERROR_TEXT] + list(T.FAREWELL.values()) + [T.HELP_PROMPT_UZ] + list(T.SEARCH_FILLER.values()) + list(T.NOT_FOUND.values())
     os.makedirs(T.AUDIO_CACHE_DIR, exist_ok=True)
     index_path = os.path.join(T.AUDIO_CACHE_DIR, "index.json")
     try:

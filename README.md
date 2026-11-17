@@ -153,6 +153,14 @@ gapirsa — birinchi gap ajratib olinadi (2 blok > 0.03 RMS bilan boshlanadi, 0.
 (`FAREWELL`, oldindan ovozlangan, TTS kvotasi sarflanmaydi; yangi matn: `python -m app.gen_audio_cache`) va `{"type":"turn_complete","end":true}` yuboriladi: brauzer mikrofonni yopadi, ovoz va avatar og'zi tugagach (+0,9 s) suhbat **o'zi tugaydi**
 (kutish rejimi). Faqat «rahmat» yoki gap davomidagi «hayr» (= «yo'q») xayrlashish emas. Tasniflash javobdan kech tugasa ham (>0,4 s) javob aytiladi, lekin suhbat baribir tugaydi.
 
+**«Qanday yordam bera olaman?»:** o'zbekcha tayyor salomdan DARHOL keyin (0,35 s jimlikdan so'ng) avatar «Sizga qanday yordam bera olaman?» deydi (`HELP_PROMPT_UZ`, oldindan ovozlangan; ru/en salom matnida bu allaqachon bor). Salom audiosi + shu gap bitta oqimda keladi (≈ 8–9 s).
+
+**Savolga javob — internetdan qidirish (to'qimaydi):** `tts_voice._llm_answer` ikki bosqichli. (1) `_route` (kichik LLM, ~1 s): savol tayyor javobga (aeroport, poezd, limitlar, mashina, pochta/kuryer, valyuta) mos bo'lsa — o'sha tayyor klip, qidirilmaydi.
+(2) Aks holda `_search_answer`: Gemini + **Google Search grounding** — «Hozir aniqlashtirib beraman.» (`SEARCH_FILLER`, oldindan ovozlangan, faqat savol ekani tasdiqlangach va `started` yuborilgandan keyin) aytiladi, qidiruv 3–5 s oladi.
+Qoidalar: javob ko'pi bilan 3 qisqa gap va ~340 belgi (`_shorten`); tasdiqlangan faktlar (bojsiz limit, pochta, valyuta) har doim ustun; manba nomi aytilmaydi; qidiruvda hech qanday manba chiqmasa yoki model `NOT_FOUND` desa — halol «topa olmadim, bojxona xodimiga yoki customs.uz ga murojaat qiling»
+(`NOT_FOUND`, oldindan ovozlangan; hech qachon o'ylab topilmaydi). Javob rasmiy manbaga (customs.uz, lex.uz, gov.uz, my.gov.uz; `ALLOWED_SOURCES`) asoslanmagan bo'lsa, oxiriga «Aniq ma'lumot uchun bojxona xodimiga murojaat qiling» (`VERIFY_HINT`) qo'shiladi.
+Sozlamalar: `VOICE_WEB_SEARCH=false` — eski usul (faqat tasdiqlangan faktlar); `VOICE_SEARCH_OFFICIAL_ONLY=true` — faqat rasmiy manbali javob aytiladi (aks holda «topa olmadim»). Yangi qat'iy matnlar `python -m app.gen_audio_cache` bilan ovozlanadi.
+
 - «Suhbatni boshlash» tugmasi saqlangan (zaxira; u bosilsa kutish to'xtaydi va salom darrov beriladi). «Tugatish» dan keyin yana salom kutiladi. Mikrofon ruxsati `denied` bo'lsa kutish yoqilmaydi; `?manual=1` — kutishni o'chiradi.
 - **Kiosk Chrome**: mikrofon ruxsati oldindan berilgan bo'lsin (doimiy profilda bir marta «Ruxsat» yoki siyosat `AudioCaptureAllowedUrls`), `--autoplay-policy=no-user-gesture-required` tavsiya (ayrim brauzerlarda
   AudioContext sahifa bosilguncha to'xtab turadi — shunda holat yozuvi «Sahifani bir marta bosing…» deydi).

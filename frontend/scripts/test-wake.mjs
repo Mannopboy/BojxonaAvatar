@@ -91,7 +91,8 @@ async function scenario({ name, wav, expect }) {
       ok("kutish rejimi: ws ?wake=1 bilan ochildi", ws.urls.some((u) => u.url.includes("wake=1")));
       ok("ready.wake = true", ready?.m.wake === true);
       ok("backend 'greeting' belgisini yubordi", types.includes("greeting"));
-      ok("tayyor salom matni va audio (~6 s)", /Assalomu alaykum/.test(transcript) && sec >= 4.5, `${sec.toFixed(1)} s`);
+      ok("tayyor salom matni va audio (~6 s + «qanday yordam bera olaman?» ~2 s)", /Assalomu alaykum/.test(transcript) && sec >= 7, `${sec.toFixed(1)} s`);
+      ok("salomdan DARHOL keyin «Sizga qanday yordam bera olaman?» deb so'radi", /Sizga qanday yordam bera olaman/.test(transcript), transcript.slice(-60));
       ok("salom videosi ijro etildi", ev.some((e) => e[0] === "greeting-video"));
       ok("avatar oldinga yurib keldi — salom TASDIQLANGANDAN keyin (oldin emas)", arriveAt !== undefined && confirmAt !== undefined && arriveAt >= confirmAt - 50, `tasdiq→yurib kelish ${arriveAt && confirmAt ? ((arriveAt - confirmAt) / 1000).toFixed(2) : "?"} s`);
       ok("suhbat ketyapti (Tugatish tugmasi)", btn.stop);
