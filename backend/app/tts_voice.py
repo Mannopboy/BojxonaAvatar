@@ -389,22 +389,59 @@ def _clip_instruction() -> str:
     )
 
 
+_LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz"}
+
+
+def _lang_directive(lang: str) -> str:
+    """Model yo'lovchi tilini o'zi aniqlay olmay, o'zbekcha prompt tufayli o'zbekcha javob berib yuborardi — til aniq aytiladi (lang: _route/_classify aniqlagan til)."""
+    name = _LANG_NAMES.get(lang, _LANG_NAMES["uz"])
+    return f"\n\nJAVOB TILI (juda muhim): yo'lovchi {name} tilida gapirdi — javobni FAQAT {name} tilida yoz."
+
+
+CHAT = "chat"  # _route natijasi: bojxona ma'lumoti emas, oddiy suhbat / avatarning o'zi haqida — internetdan qidirilmaydi, to'g'ridan-to'g'ri javob (_chat_answer)
+
+# Suhbat rejimi: yo'lovchi bojxona ma'lumotini emas, avatarning o'zini / oddiy gapni so'radi — «aniqlashtirib beraman» yoki «xodimga murojaat qiling» deyilmaydi
+CHAT_SYSTEM = (
+    TTS_SYSTEM
+    + "\n\nSUHBAT REJIMI: yo'lovchi bojxona ma'lumotini so'ramadi — sendan nima qila olishingni, qanday yordam berishingni, seni kim ekaningni so'radi yoki oddiy gap aytdi "
+    "(rahmat, yaxshi, tushunmadim, qaytaring...). Shunga TO'G'RIDAN-TO'G'RI, qisqa (1-3 gap) va tabiiy javob ber. «Aniqlashtirib beraman», «xodimga murojaat qiling» yoki «customs.uz» DEMA. "
+    "Nima qila olishing haqida: bojxona qoidalari bo'yicha savollarga javob berasan — bojsiz tovar olib kirish limitlari, valyuta, xalqaro pochta va kuryer jo'natmalari, avtomobil olib kirish, "
+    "deklaratsiya va hujjatlar; kerak bo'lsa ma'lumotni internetdan ham aniqlaysan. Oxirida «Savolingizni bering» ma'nosida taklif qil. "
+    "O'zing haqingda so'ralsa — qisqa tanishtirishing mumkin (Davlat bojxona qo'mitasining virtual xodimi). Yo'lovchi qaysi tilda gapirsa (o'zbek, rus yoki ingliz), o'sha tilda javob ber."
+)
+
+
+# Ruscha/inglizcha yo'lovchi uchun suhbat prompti — o'zbekcha prompt modelni o'zbekcha javobga undardi (sinovda aniqlandi), shuning uchun inglizcha yoziladi
+CHAT_SYSTEM_FOREIGN = (
+    "You are the virtual employee (female) of the State Customs Committee of the Republic of Uzbekistan, talking with a passenger by VOICE: your reply is read aloud. "
+    "The passenger did not ask for customs information: they asked what you can do, how you can help, who you are, or said something casual. "
+    "Answer DIRECTLY in 1-3 short, natural sentences. The greeting has already happened: do NOT greet again. Do NOT say you will check or clarify something, and do NOT tell them to contact an officer or visit a website. "
+    "What you can do: answer questions about customs rules - duty-free import limits, currency, international mail and courier parcels, importing a car, declarations and documents - "
+    "and look things up on the internet if needed. End by inviting them to ask their question. "
+    "Plain spoken sentences only: no markdown, lists, emoji or special symbols. Reply ONLY in {language}."
+)
+_FOREIGN_NAMES = {"ru": "Russian", "en": "English"}
+
+
 def _route_instruction() -> str:
     lines = "\n".join(f"- {a['id']}: {a['when']}" for a in ANSWERS)
     return (
         "Sen bojxona kioskidagi virtual xodimning tushunish moduli san. Yo'lovchi savoliga qarab FAQAT JSON qaytar. "
-        "clip: agar savol (o'zbek tilida) quyidagi TAYYOR JAVOBLARdan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — uning id si; boshqa hamma holatda "
-        "(boshqa mavzu, bir nechta savol, rus yoki ingliz tili, aniqlashtirish, shovqin) — 'none'. lang: yo'lovchi tili — 'uz', 'ru' yoki 'en'.\n" + lines
+        "clip: agar savol (o'zbek tilida) quyidagi TAYYOR JAVOBLARdan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — uning id si. "
+        "'chat' — savol bojxona ma'lumoti HAQIDA EMAS: avatarning o'zi haqida (sen kimsan, ismingiz nima, nima qila olasiz, qanday yordam bera olasiz), "
+        "oddiy gap (rahmat, yaxshi, tushunmadim, qaytaring, qalaysiz) — bunda internetdan qidirish KERAK EMAS. "
+        "TAYYOR JAVOBLAR faqat O'ZBEK tilidagi savollar uchun (rus yoki ingliz tilidagi savolda tayyor id TANLAMA: o'zi haqidagi savol bo'lsa 'chat', aks holda 'none'). "
+        "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: yo'lovchi tili — 'uz', 'ru' yoki 'en'.\n" + lines
     )
 
 
 async def _route(contents: list) -> tuple[str | None, str]:
-    """Kichik tez chaqiruv (~1 s): savol tayyor javobga mosmi (clip id) va yo'lovchi tili. Mos bo'lmasa (None, til)."""
+    """Kichik tez chaqiruv (~1 s): savol tayyor javobga mosmi (clip id), oddiy suhbatmi (CHAT) va yo'lovchi tili. Bojxona savoli bo'lib, tayyor javob yo'q bo'lsa (None, til)."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=_route_instruction(), temperature=0.0, max_output_tokens=40, response_mime_type="application/json")
     kwargs["response_schema"] = {
         "type": "OBJECT",
-        "properties": {"clip": {"type": "STRING", "enum": ["none"] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
+        "properties": {"clip": {"type": "STRING", "enum": ["none", CHAT] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
         "required": ["clip", "lang"],
     }
     if "2.5" in model:
@@ -414,8 +451,11 @@ async def _route(contents: list) -> tuple[str | None, str]:
         j = json.loads(r.text or "{}")
     except ValueError:
         j = {}
-    clip = j.get("clip") if j.get("clip") in ANSWER_BY_ID else None
+    clip = j.get("clip") if (j.get("clip") in ANSWER_BY_ID or j.get("clip") == CHAT) else None
     lang = j.get("lang") if j.get("lang") in WAKE_LANGS else "uz"
+    if clip and clip != CHAT and lang != "uz":
+        # tayyor javoblar faqat o'zbekcha: rus/ingliz yo'lovchiga o'zbekcha javob aytilmasin — «nima qila olasiz» savoli yo'lovchi tilida suhbat javobi, qolganlari qidiruv/faktlar orqali
+        clip = CHAT if clip == "capabilities" else None
     return clip, lang
 
 
@@ -472,7 +512,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     Javob RASMIY manbaga (customs.uz, lex.uz, gov.uz, my.gov.uz) asoslangan bo'lsa — shunday aytiladi. Faqat norasmiy manba bo'lsa: voice_search_official_only=true da None (ADR-005 qat'iy rejimi),
     aks holda javob oxiriga VERIFY_HINT («bojxona xodimiga aniqlashtiring») qo'shiladi — yo'lovchi norasmiy ma'lumotni qat'iy deb qabul qilmasin."""
     model = settings.gemini_chat_model or settings.gemini_text_model
-    kwargs: dict = dict(system_instruction=SEARCH_SYSTEM, temperature=0.2, max_output_tokens=500, tools=[types.Tool(google_search=types.GoogleSearch())])
+    kwargs: dict = dict(system_instruction=SEARCH_SYSTEM + _lang_directive(lang), temperature=0.2, max_output_tokens=500, tools=[types.Tool(google_search=types.GoogleSearch())])
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
@@ -500,6 +540,8 @@ async def _llm_answer(contents: list, on_search=None) -> tuple[str | None, str]:
     if not (settings.voice_web_search and settings.grounding_enabled):
         return await _llm_answer_plain(contents)
     clip, lang = await _route(contents)
+    if clip == CHAT:  # avatarning o'zi haqida / oddiy gap: qidirilmaydi, to'ldiruvchi («aniqlashtirib beraman») ham aytilmaydi
+        return None, await _chat_answer(contents, lang)
     if clip:
         return clip, ANSWER_BY_ID[clip]["text"]
     if on_search is not None and not await on_search(lang):
@@ -512,6 +554,25 @@ async def _llm_answer(contents: list, on_search=None) -> tuple[str | None, str]:
         log.warning("qidiruv xatosi: %s: %s", type(e).__name__, str(e)[:160])
         text = None
     return None, text or NOT_FOUND.get(lang, NOT_FOUND["uz"])
+
+
+async def _chat_answer(contents: list, lang: str = "uz") -> str:
+    """Oddiy suhbat / avatarning o'zi haqida savolga qisqa to'g'ridan-to'g'ri javob (internetsiz). Xato yoki bo'sh javobda — «nima qila olaman» tayyor matni."""
+    fallback = ANSWER_BY_ID.get("capabilities", {}).get("text") or ERROR_TEXT
+    model = settings.gemini_chat_model or settings.gemini_text_model
+    system = CHAT_SYSTEM_FOREIGN.format(language=_FOREIGN_NAMES[lang]) if lang in _FOREIGN_NAMES else CHAT_SYSTEM + _lang_directive("uz")
+    kwargs: dict = dict(system_instruction=system, temperature=0.4, max_output_tokens=300)
+    if "2.5" in model:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    try:
+        r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("suhbat javobi xatosi: %s: %s", type(e).__name__, str(e)[:160])
+        return fallback
+    text = _shorten(clean_for_speech(r.text or ""))
+    return text or fallback
 
 
 async def _llm_answer_plain(contents: list) -> tuple[str | None, str]:

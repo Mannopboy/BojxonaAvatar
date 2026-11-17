@@ -32,5 +32,11 @@
   "video": false,
   "when": "valyutani olib kirish yoki olib chiqish (naqd pul) qoidasi so'ralsa",
   "text": "Naqd xorijiy valyutani olib kirish cheklanmagan, lekin yuz million so'm ekvivalentidan oshsa deklaratsiya majburiy. Olib chiqishda yuz million so'mgacha hujjatsiz mumkin, ortig'iga ruxsatnoma yoki deklaratsiya kerak."
+ },
+ {
+  "id": "capabilities",
+  "video": false,
+  "when": "yo'lovchi avatar qanday yordam bera olishini, nima qila olishini yoki nimalar haqida ma'lumot berishini so'rasa (masalan «qanday yordam bera olasiz?», «nima qila olasiz?», «nimalarga javob bera olasiz?»)",
+  "text": "Men bojxona qoidalari bo'yicha savollarga javob beraman: bojsiz limitlar, valyuta, pochta, avtomobil va hujjatlar haqida. Savolingizni bering."
  }
 ]
