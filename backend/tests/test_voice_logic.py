@@ -425,11 +425,24 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(T._is_official(bad), bad)
 
     def test_shorten_keeps_voice_answer_short(self):
-        self.assertEqual(T._shorten("Bir. Ikki. Uch. To'rt. Besh."), "Bir. Ikki. Uch.")
+        self.assertEqual(T._shorten("Bir. Ikki. Uch. To'rt. Besh."), "Bir. Ikki.")
         long_sentence = "Uzun gap " * 60 + "tugadi."
-        self.assertEqual(T._shorten("Qisqa. " + long_sentence), "Qisqa.")  # ikkinchi gap 340 belgidan oshadi
+        self.assertEqual(T._shorten("Qisqa. " + long_sentence), "Qisqa.")  # ikkinchi gap 170 belgidan oshadi
         self.assertEqual(T._shorten("Faqat bitta gap"), "Faqat bitta gap")
-        self.assertLessEqual(len(T._shorten(long_sentence)), 340)  # bitta uzun gap bo'lsa ham kesiladi
+        self.assertLessEqual(len(T._shorten(long_sentence)), 260)  # bitta juda uzun gap bo'lsa ham kesiladi
+
+    def test_shorten_never_cuts_a_normal_first_sentence_mid_way(self):
+        """Birinchi gap (~215 belgi) butun qoladi — ma'no buzilmasin; qo'shimcha gap tashlanadi."""
+        first = "Chet eldan olib kirilgan yangi mobil telefon uchun bojxona to'lovi, agar uning qiymati belgilangan bojsiz olib kirish me'yorlaridan oshsa yoki yo'lovchi bojxona deklaratsiyasida ko'rsatilmagan bo'lsa, undiriladi."
+        self.assertTrue(170 < len(first) <= 260)
+        self.assertEqual(T._shorten(first + " Ikkinchi gap."), first)
+
+    def test_shorten_cuts_overlong_sentence_at_a_clause_boundary(self):
+        clause = "birinchi shart bajarilgan bo'lsa"
+        sentence = ", ".join([clause] * 12) + " ruxsat beriladi."  # ~400 belgi, bitta gap
+        res = T._shorten(sentence)
+        self.assertLessEqual(len(res), 260)
+        self.assertTrue(res.endswith(clause + "."), res[-40:])  # vergul chegarasida, so'z o'rtasida emas
 
     def test_leading_greeting_is_stripped_from_search_answer(self):
         self.assertEqual(T._strip_greeting("Assalomu alaykum. Telefon uchun bojxona to'lovi bor."), "Telefon uchun bojxona to'lovi bor.")

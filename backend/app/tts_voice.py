@@ -75,16 +75,16 @@ SEARCH_FILLER = {
 }
 # Qidiruvda ishonchli javob topilmasa — to'qimasdan halol aytiladi (oldindan ovozlangan)
 NOT_FOUND = {
-    "uz": "Kechirasiz, bu savol bo'yicha aniq ma'lumot topa olmadim. Iltimos, bojxona xodimiga yoki customs.uz saytiga murojaat qiling.",
-    "ru": "Извините, точной информации по этому вопросу найти не удалось. Пожалуйста, обратитесь к сотруднику таможни или на сайт customs.uz.",
-    "en": "Sorry, I could not find exact information on this question. Please ask a customs officer or visit customs.uz.",
+    "uz": "Kechirasiz, aniq ma'lumot topa olmadim. Bojxona xodimiga murojaat qiling.",
+    "ru": "Извините, точной информации не нашла. Обратитесь к сотруднику таможни.",
+    "en": "Sorry, I could not find exact information. Please ask a customs officer.",
 }
 FIXED_TEXTS = frozenset(NOT_FOUND.values())  # shu matnlar TTS siz, diskdagi audio bilan aytiladi
 # Javob RASMIY bo'lmagan saytdan olingan bo'lsa, oxiriga qo'shiladi (javob bilan birga ovozlanadi)
 VERIFY_HINT = {
-    "uz": "Aniq ma'lumot uchun bojxona xodimiga murojaat qiling.",
-    "ru": "Для точной информации обратитесь к сотруднику таможни.",
-    "en": "For exact details, please ask a customs officer.",
+    "uz": "Aniqlash uchun xodimga murojaat qiling.",
+    "ru": "Уточните у сотрудника таможни.",
+    "en": "Please confirm with a customs officer.",
 }
 
 _FACTS = TTS_SYSTEM.split("TASDIQLANGAN FAKTLAR:\n", 1)[1]
@@ -94,7 +94,8 @@ SEARCH_SYSTEM = (
     "ISH TARTIBI: yo'lovchi savoliga javob berish uchun INTERNETDAN QIDIR (Google Search). Qidiruv so'rovlariga 'customs.uz' va 'lex.uz' ni qo'sh va birinchi navbatda rasmiy manbalarga — customs.uz, lex.uz, gov.uz, my.gov.uz — tayan; rasmiy manbada topilmasa, boshqa sahifadagi ma'lumotni FAQAT aniq yozilgan bo'lsagina ayt "
     "(forum, izoh va blog yozuvlariga ISHONMA; manbalar bir-biriga zid bo'lsa aytma). O'z xotirangdan aniq raqam, summa, foiz, muddat, sana, tarif, telefon yoki qonun moddasini O'YLAB TOPMA va taxmin qilma. "
     "Manba nomini aytma (customs.uz va h.k. deb) — faqat javobning o'zini ayt. Rasmiy manbadan aniq javob topa olmasang yoki manbalar bir-biriga zid bo'lsa — faqat NOT_FOUND so'zini yoz (boshqa hech narsa).\n"
-    "QISQALIK (juda muhim): javob ko'pi bilan UCH ta qisqa gap, jami 300 belgigacha — eng muhim narsani ayt (hujjatlar ro'yxati bo'lsa — faqat eng asosiy ikki-uchtasini); batafsil ma'lumot uchun 'customs.uz saytiga yoki bojxona xodimiga murojaat qiling' deb yo'naltir.\n"
+    "QISQALIK (juda muhim — javob tez aytilishi kerak): javob ko'pi bilan IKKI qisqa gap, jami 150 belgigacha. Faqat savolning o'ziga javob ber (ha/yo'q va eng asosiy shart yoki raqam); "
+    "tushuntirish, ro'yxat, qo'shimcha izoh va «xodimga/saytga murojaat qiling» deb yo'naltirishni YOZMA — buni tizim o'zi qo'shadi.\n"
     "USLUB: rasmiy, xushmuomala, iliq. Yo'lovchiga doim 'Siz' deb murojaat qil. Salomlashish allaqachon bo'lgan: yo'lovchi gapida salom bo'lsa ham SEN salomlashma («Assalomu alaykum» deb BOSHLAMA) va o'zingni tanishtirma — to'g'ridan-to'g'ri javobdan boshla.\n"
     "TIL: yo'lovchi qaysi tilda gapirsa (o'zbek, rus yoki ingliz), o'sha tilda javob ber. Asosiy til — o'zbekcha.\n"
     "YOZUV (juda muhim, javob ovozlanadi): faqat oddiy gaplar — markdown, ro'yxat belgisi, qavs, emoji, havola va maxsus belgi ISHLATMA. "
@@ -404,7 +405,7 @@ CHAT = "chat"  # _route natijasi: bojxona ma'lumoti emas, oddiy suhbat / avatarn
 CHAT_SYSTEM = (
     TTS_SYSTEM
     + "\n\nSUHBAT REJIMI: yo'lovchi bojxona ma'lumotini so'ramadi — sendan nima qila olishingni, qanday yordam berishingni, seni kim ekaningni so'radi yoki oddiy gap aytdi "
-    "(rahmat, yaxshi, tushunmadim, qaytaring...). Shunga TO'G'RIDAN-TO'G'RI, qisqa (1-3 gap) va tabiiy javob ber. «Aniqlashtirib beraman», «xodimga murojaat qiling» yoki «customs.uz» DEMA. "
+    "(rahmat, yaxshi, tushunmadim, qaytaring...). Shunga TO'G'RIDAN-TO'G'RI, qisqa (1-2 gap) va tabiiy javob ber. «Aniqlashtirib beraman», «xodimga murojaat qiling» yoki «customs.uz» DEMA. "
     "Nima qila olishing haqida: bojxona qoidalari bo'yicha savollarga javob berasan — bojsiz tovar olib kirish limitlari, valyuta, xalqaro pochta va kuryer jo'natmalari, avtomobil olib kirish, "
     "deklaratsiya va hujjatlar; kerak bo'lsa ma'lumotni internetdan ham aniqlaysan. Oxirida «Savolingizni bering» ma'nosida taklif qil. "
     "O'zing haqingda so'ralsa — qisqa tanishtirishing mumkin (Davlat bojxona qo'mitasining virtual xodimi). Yo'lovchi qaysi tilda gapirsa (o'zbek, rus yoki ingliz), o'sha tilda javob ber."
@@ -415,7 +416,7 @@ CHAT_SYSTEM = (
 CHAT_SYSTEM_FOREIGN = (
     "You are the virtual employee (female) of the State Customs Committee of the Republic of Uzbekistan, talking with a passenger by VOICE: your reply is read aloud. "
     "The passenger did not ask for customs information: they asked what you can do, how you can help, who you are, or said something casual. "
-    "Answer DIRECTLY in 1-3 short, natural sentences. The greeting has already happened: do NOT greet again. Do NOT say you will check or clarify something, and do NOT tell them to contact an officer or visit a website. "
+    "Answer DIRECTLY in 1-2 short, natural sentences. The greeting has already happened: do NOT greet again. Do NOT say you will check or clarify something, and do NOT tell them to contact an officer or visit a website. "
     "What you can do: answer questions about customs rules - duty-free import limits, currency, international mail and courier parcels, importing a car, declarations and documents - "
     "and look things up on the internet if needed. End by inviting them to ask their question. "
     "Plain spoken sentences only: no markdown, lists, emoji or special symbols. Reply ONLY in {language}."
@@ -491,8 +492,9 @@ def _strip_greeting(text: str) -> str:
     return stripped or text
 
 
-def _shorten(text: str, max_sentences: int = 3, max_chars: int = 340) -> str:
-    """Ovozli javob uchun: ko'pi bilan `max_sentences` gap va `max_chars` belgi (gap chegarasida kesiladi). Model uzun yozsa ham yo'lovchi 50 soniya tinglamasin."""
+def _shorten(text: str, max_sentences: int = 2, max_chars: int = 170, hard_cap: int = 260) -> str:
+    """Ovozli javob tez aytilishi uchun: ko'pi bilan `max_sentences` gap va `max_chars` belgi (qo'shimcha gaplar gap chegarasida tashlanadi). Birinchi gap HAR DOIM butun qoladi (ma'no buzilmasin),
+    faqat u `hard_cap` dan uzun bo'lsa — oxirgi vergul/nuqtali vergul chegarasida (yo'q bo'lsa so'z chegarasida) kesiladi."""
     parts = re.split(r"(?<=[.!?])\s+", text.strip())
     out: list[str] = []
     for part in parts:
@@ -502,8 +504,13 @@ def _shorten(text: str, max_sentences: int = 3, max_chars: int = 340) -> str:
             break
         out.append(part)
     res = " ".join(out) if out else text.strip()
-    if len(res) > max_chars:  # bitta gapning o'zi juda uzun — so'z chegarasida kesiladi
-        res = res[:max_chars].rsplit(" ", 1)[0].rstrip(",;:-— ") + "."
+    if len(res) > hard_cap:  # bitta gapning o'zi juda uzun
+        cut = res[:hard_cap]
+        k = max(cut.rfind(","), cut.rfind(";"), cut.rfind(":"))
+        if k >= hard_cap // 2:
+            res = cut[:k].rstrip(",;:-— ") + "."  # to'liq bo'lak (gap bo'lagi) bilan tugaydi
+        else:
+            res = cut.rsplit(" ", 1)[0].rstrip(",;:-— ") + "."
     return res
 
 
@@ -512,7 +519,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     Javob RASMIY manbaga (customs.uz, lex.uz, gov.uz, my.gov.uz) asoslangan bo'lsa — shunday aytiladi. Faqat norasmiy manba bo'lsa: voice_search_official_only=true da None (ADR-005 qat'iy rejimi),
     aks holda javob oxiriga VERIFY_HINT («bojxona xodimiga aniqlashtiring») qo'shiladi — yo'lovchi norasmiy ma'lumotni qat'iy deb qabul qilmasin."""
     model = settings.gemini_chat_model or settings.gemini_text_model
-    kwargs: dict = dict(system_instruction=SEARCH_SYSTEM + _lang_directive(lang), temperature=0.2, max_output_tokens=500, tools=[types.Tool(google_search=types.GoogleSearch())])
+    kwargs: dict = dict(system_instruction=SEARCH_SYSTEM + _lang_directive(lang), temperature=0.2, max_output_tokens=250, tools=[types.Tool(google_search=types.GoogleSearch())])
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
