@@ -63,6 +63,43 @@ FAREWELL = {
     "en": "Goodbye, dear passenger! Have a safe journey.",
 }
 ERROR_TEXT = "Kechirasiz, hozir javob bera olmadim. Iltimos, savolingizni qayta takrorlang."
+# O'zbekcha tayyor salomdan (video + audio) DARHOL keyin: yo'lovchi nima so'rashini bilsin (ru/en salom matnida «Чем могu помочь?» allaqachon bor)
+HELP_PROMPT_UZ = "Sizga qanday yordam bera olaman?"
+HELP_PAUSE_S = 0.35  # salom va savol orasida qisqa jimlik
+HELP_SILENCE = b"\x00\x00" * int(24000 * HELP_PAUSE_S)  # PCM16 24 kHz jimlik
+# Tayyor javobga mos kelmagan savol INTERNETDAN qidiriladi (Google Search grounding, to'qimasdan); qidirish ~3-7 s oladi — shu paytda qisqa gap aytiladi (oldindan ovozlangan)
+SEARCH_FILLER = {
+    "uz": "Hozir aniqlashtirib beraman.",
+    "ru": "Сейчас уточню.",
+    "en": "Let me check that for you.",
+}
+# Qidiruvda ishonchli javob topilmasa — to'qimasdan halol aytiladi (oldindan ovozlangan)
+NOT_FOUND = {
+    "uz": "Kechirasiz, bu savol bo'yicha aniq ma'lumot topa olmadim. Iltimos, bojxona xodimiga yoki customs.uz saytiga murojaat qiling.",
+    "ru": "Извините, точной информации по этому вопросу найти не удалось. Пожалуйста, обратитесь к сотруднику таможни или на сайт customs.uz.",
+    "en": "Sorry, I could not find exact information on this question. Please ask a customs officer or visit customs.uz.",
+}
+FIXED_TEXTS = frozenset(NOT_FOUND.values())  # shu matnlar TTS siz, diskdagi audio bilan aytiladi
+# Javob RASMIY bo'lmagan saytdan olingan bo'lsa, oxiriga qo'shiladi (javob bilan birga ovozlanadi)
+VERIFY_HINT = {
+    "uz": "Aniq ma'lumot uchun bojxona xodimiga murojaat qiling.",
+    "ru": "Для точной информации обратитесь к сотруднику таможни.",
+    "en": "For exact details, please ask a customs officer.",
+}
+
+_FACTS = TTS_SYSTEM.split("TASDIQLANGAN FAKTLAR:\n", 1)[1]
+SEARCH_SYSTEM = (
+    "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchilar bilan JONLI OVOZLI suhbat qilasan: sening javobing ovoz chiqarib o'qiladi.\n"
+    "TASDIQLANGAN FAKTLAR (RASMIY va o'zgarmas; bojsiz limit, pochta/kuryer va valyuta raqamlarini FAQAT shulardan ol — qidiruvda boshqa raqam uchrasa ham AYTMA):\n" + _FACTS + "\n"
+    "ISH TARTIBI: yo'lovchi savoliga javob berish uchun INTERNETDAN QIDIR (Google Search). Qidiruv so'rovlariga 'customs.uz' va 'lex.uz' ni qo'sh va birinchi navbatda rasmiy manbalarga — customs.uz, lex.uz, gov.uz, my.gov.uz — tayan; rasmiy manbada topilmasa, boshqa sahifadagi ma'lumotni FAQAT aniq yozilgan bo'lsagina ayt "
+    "(forum, izoh va blog yozuvlariga ISHONMA; manbalar bir-biriga zid bo'lsa aytma). O'z xotirangdan aniq raqam, summa, foiz, muddat, sana, tarif, telefon yoki qonun moddasini O'YLAB TOPMA va taxmin qilma. "
+    "Manba nomini aytma (customs.uz va h.k. deb) — faqat javobning o'zini ayt. Rasmiy manbadan aniq javob topa olmasang yoki manbalar bir-biriga zid bo'lsa — faqat NOT_FOUND so'zini yoz (boshqa hech narsa).\n"
+    "QISQALIK (juda muhim): javob ko'pi bilan UCH ta qisqa gap, jami 300 belgigacha — eng muhim narsani ayt (hujjatlar ro'yxati bo'lsa — faqat eng asosiy ikki-uchtasini); batafsil ma'lumot uchun 'customs.uz saytiga yoki bojxona xodimiga murojaat qiling' deb yo'naltir.\n"
+    "USLUB: rasmiy, xushmuomala, iliq. Yo'lovchiga doim 'Siz' deb murojaat qil. Salomlashma va o'zingni tanishtirma — bu allaqachon aytilgan.\n"
+    "TIL: yo'lovchi qaysi tilda gapirsa (o'zbek, rus yoki ingliz), o'sha tilda javob ber. Asosiy til — o'zbekcha.\n"
+    "YOZUV (juda muhim, javob ovozlanadi): faqat oddiy gaplar — markdown, ro'yxat belgisi, qavs, emoji, havola va maxsus belgi ISHLATMA. "
+    "Barcha raqam, summa va sonlarni SO'Z bilan yoz (masalan 'bir ming dollar', 'besh yuz dollar'), raqam yozma. '$' o'rniga 'dollar', '%' o'rniga 'foiz' deb yoz."
+)
 
 _client: genai.Client | None = None
 _blocked: dict[str, float] = {}  # model -> shu vaqtgacha (time.time()) kunlik kvotasi tugagan
@@ -352,9 +389,121 @@ def _clip_instruction() -> str:
     )
 
 
-async def _llm_answer(contents: list) -> tuple[str | None, str]:
-    """Gemini matn modeli javobi: (tayyor javob id si yoki None, matn). Javob qisqa (2-4 gap), butun javob BITTA TTS chaqiruvida ovozlanadi (gaplarni alohida ovozlash
-    ovoz tezligi/balandligini gap sayin o'zgartirardi va kvotani ko'p sarflardi). Tayyor javob bo'lsa TTS umuman chaqirilmaydi."""
+def _route_instruction() -> str:
+    lines = "\n".join(f"- {a['id']}: {a['when']}" for a in ANSWERS)
+    return (
+        "Sen bojxona kioskidagi virtual xodimning tushunish moduli san. Yo'lovchi savoliga qarab FAQAT JSON qaytar. "
+        "clip: agar savol (o'zbek tilida) quyidagi TAYYOR JAVOBLARdan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — uning id si; boshqa hamma holatda "
+        "(boshqa mavzu, bir nechta savol, rus yoki ingliz tili, aniqlashtirish, shovqin) — 'none'. lang: yo'lovchi tili — 'uz', 'ru' yoki 'en'.\n" + lines
+    )
+
+
+async def _route(contents: list) -> tuple[str | None, str]:
+    """Kichik tez chaqiruv (~1 s): savol tayyor javobga mosmi (clip id) va yo'lovchi tili. Mos bo'lmasa (None, til)."""
+    model = settings.gemini_chat_model or settings.gemini_text_model
+    kwargs: dict = dict(system_instruction=_route_instruction(), temperature=0.0, max_output_tokens=40, response_mime_type="application/json")
+    kwargs["response_schema"] = {
+        "type": "OBJECT",
+        "properties": {"clip": {"type": "STRING", "enum": ["none"] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
+        "required": ["clip", "lang"],
+    }
+    if "2.5" in model:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
+    try:
+        j = json.loads(r.text or "{}")
+    except ValueError:
+        j = {}
+    clip = j.get("clip") if j.get("clip") in ANSWER_BY_ID else None
+    lang = j.get("lang") if j.get("lang") in WAKE_LANGS else "uz"
+    return clip, lang
+
+
+def _grounding_domains(resp) -> list[str]:
+    """Qidiruv natijasidagi manba domenlari (Google Search grounding). Bo'sh — hech narsa topilmagan."""
+    out: list[str] = []
+    try:
+        meta = getattr(resp.candidates[0], "grounding_metadata", None)
+        for ch in getattr(meta, "grounding_chunks", None) or []:
+            web = getattr(ch, "web", None)
+            if web:
+                out.append((getattr(web, "title", "") or getattr(web, "uri", "") or "?")[:60])
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _is_official(domain: str) -> bool:
+    """Manba rasmiymi (settings.allowed_sources: customs.uz, lex.uz, gov.uz, my.gov.uz). Gemini grounding'da domen `web.title` da keladi."""
+    d = (domain or "").lower().strip().replace("www.", "")
+    return bool(d) and any(d == a or d.endswith("." + a) for a in settings.allowed_source_list)
+
+
+def _shorten(text: str, max_sentences: int = 3, max_chars: int = 340) -> str:
+    """Ovozli javob uchun: ko'pi bilan `max_sentences` gap va `max_chars` belgi (gap chegarasida kesiladi). Model uzun yozsa ham yo'lovchi 50 soniya tinglamasin."""
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    out: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if out and (len(out) >= max_sentences or len(" ".join(out)) + 1 + len(part) > max_chars):
+            break
+        out.append(part)
+    res = " ".join(out) if out else text.strip()
+    if len(res) > max_chars:  # bitta gapning o'zi juda uzun — so'z chegarasida kesiladi
+        res = res[:max_chars].rsplit(" ", 1)[0].rstrip(",;:-— ") + "."
+    return res
+
+
+async def _search_answer(contents: list, lang: str = "uz") -> str | None:
+    """INTERNETDAN qidirib (Gemini + Google Search grounding) javob matni. None — ishonchli javob topilmadi: qidiruv manbasi yo'q (model o'zi to'qigan bo'lishi mumkin), NOT_FOUND yoki bo'sh matn.
+    Javob RASMIY manbaga (customs.uz, lex.uz, gov.uz, my.gov.uz) asoslangan bo'lsa — shunday aytiladi. Faqat norasmiy manba bo'lsa: voice_search_official_only=true da None (ADR-005 qat'iy rejimi),
+    aks holda javob oxiriga VERIFY_HINT («bojxona xodimiga aniqlashtiring») qo'shiladi — yo'lovchi norasmiy ma'lumotni qat'iy deb qabul qilmasin."""
+    model = settings.gemini_chat_model or settings.gemini_text_model
+    kwargs: dict = dict(system_instruction=SEARCH_SYSTEM, temperature=0.2, max_output_tokens=500, tools=[types.Tool(google_search=types.GoogleSearch())])
+    if "2.5" in model:
+        kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    r = await _gc().aio.models.generate_content(model=model, contents=contents, config=types.GenerateContentConfig(**kwargs))
+    raw = (r.text or "").strip()
+    text = clean_for_speech(raw)  # (clean_for_speech pastki chiziqni olib tashlaydi — NOT_FOUND belgisi tozalashdan OLDIN tekshiriladi)
+    sources = _grounding_domains(r)
+    official = [d for d in sources if _is_official(d)]
+    log.info("qidiruv: %d manba (rasmiy %d) %s | javob: %s", len(sources), len(official), sources[:5], text[:90])
+    if not text or raw.upper().replace(" ", "_").startswith("NOT_FOUND") or not sources:
+        return None
+    if not official:
+        if settings.voice_search_official_only:
+            return None
+        return _shorten(text) + " " + VERIFY_HINT.get(lang, VERIFY_HINT["uz"])
+    return _shorten(text)
+
+
+async def _llm_answer(contents: list, on_search=None) -> tuple[str | None, str]:
+    """Savolga javob: (tayyor javob id si yoki None, matn).
+    1) kichik yo'naltirish (_route): savol tayyor javobga mos bo'lsa — o'sha (tez, TTS siz);
+    2) aks holda INTERNETDAN qidirib javob topiladi (_search_answer; to'qimaydi) — topilmasa NOT_FOUND matni yo'lovchi tilida.
+    on_search(lang) -> bool (ixtiyoriy): qidirish boshlanishidan oldin chaqiriladi (kechikish to'ldiruvchisini aytadi, savol ekanini tasdiqlaydi); False qaytarsa qidirilmaydi -> (None, "").
+    VOICE_WEB_SEARCH=0 yoki grounding o'chiq bo'lsa — eski usul (_llm_answer_plain)."""
+    if not (settings.voice_web_search and settings.grounding_enabled):
+        return await _llm_answer_plain(contents)
+    clip, lang = await _route(contents)
+    if clip:
+        return clip, ANSWER_BY_ID[clip]["text"]
+    if on_search is not None and not await on_search(lang):
+        return None, ""
+    try:
+        text = await _search_answer(contents, lang)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("qidiruv xatosi: %s: %s", type(e).__name__, str(e)[:160])
+        text = None
+    return None, text or NOT_FOUND.get(lang, NOT_FOUND["uz"])
+
+
+async def _llm_answer_plain(contents: list) -> tuple[str | None, str]:
+    """(Eski usul, VOICE_WEB_SEARCH=0) Gemini matn modeli javobi: faqat tasdiqlangan faktlar, internetsiz. Javob qisqa (2-4 gap), butun javob BITTA TTS chaqiruvida ovozlanadi
+    (gaplarni alohida ovozlash ovoz tezligi/balandligini gap sayin o'zgartirardi va kvotani ko'p sarflardi). Tayyor javob bo'lsa TTS umuman chaqirilmaydi."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=TTS_SYSTEM + _clip_instruction(), temperature=0.4, max_output_tokens=500)
     if "2.5" in model:
@@ -492,6 +641,18 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
             history.append(types.Content(role="model", parts=[types.Part(text=text)]))
             state["spoke"] = True
             return
+    if text in FIXED_TEXTS:
+        # qat'iy matn (qidiruvda ishonchli javob topilmadi): oldindan ovozlangan audio diskdan — darhol chiqadi, TTS kvotasi sarflanmaydi
+        pcm = await cached_audio(text)
+        if pcm:
+            await ws.send_text(json.dumps({"type": "transcript", "text": text}))
+            await _send_pcm(ws, pcm)
+            mark()
+            state["voice"] = "cache"
+            history.append(types.Content(role="user", parts=[user_part]))
+            history.append(types.Content(role="model", parts=[types.Part(text=text)]))
+            state["spoke"] = True
+            return
     if text:
         await ws.send_text(json.dumps({"type": "transcript", "text": text}))
         piece = bytearray()
@@ -524,6 +685,7 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
 
 CLS_GRACE_S = 0.4  # javob tasniflashdan oldin tayyor bo'lsa: xayrlashishni aniqlash uchun tasniflashni shuncha kutamiz
 CLS_LATE_S = 0.3  # javob yetkazilgach tasniflash natijasini shuncha kutamiz (turn_complete kechikmasin)
+CLS_SEARCH_WAIT_S = 1.5  # internetdan qidirish boshlanishidan oldin tasniflash natijasini shuncha kutamiz (savol ekanini tasdiqlash)
 
 
 async def _cls_result(cls: asyncio.Task, timeout: float) -> tuple[str, str] | None:
@@ -533,6 +695,15 @@ async def _cls_result(cls: asyncio.Task, timeout: float) -> tuple[str, str] | No
         return kind, lang
     except Exception:  # noqa: BLE001
         return None
+
+
+async def _say_filler(ws: WebSocket, lang: str, state: dict) -> None:
+    """Internetdan qidirish paytida (~3-7 s) qisqa to'ldiruvchi gap (oldindan ovozlangan): yo'lovchi jimlikda kutib qolmasin. spoke o'zgarmaydi (xato bo'lsa javob matni aytiladi)."""
+    state["delivering"] = True
+    if state.get("t_first") is None:
+        state["t_first"] = time.monotonic()
+    state["filler"] = True
+    await _say_cached(ws, SEARCH_FILLER.get(lang, SEARCH_FILLER["uz"]))
 
 
 async def _farewell(ws: WebSocket, lang: str, state: dict) -> None:
@@ -549,7 +720,21 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list, state: di
     uzoq o'ylamasdan qisqa qayta so'raladi (aks holda eng uzoq kutish aynan shu holatda edi: 3.3–6.9 s), tushunarli bo'lsa javob allaqachon yo'lda (kechikish qo'shilmaydi)."""
     contents = history[-HISTORY_TURNS * 2:] + [types.Content(role="user", parts=[user_part])]
     state.setdefault("spoke", False)
-    ans = asyncio.create_task(_timed(_llm_answer(contents)))
+    cls: asyncio.Task | None = None
+
+    async def on_search(route_lang: str) -> bool:
+        """Internetdan qidirish boshlanishidan oldin: savol ekanini tasdiqlaydi (xayrlashish/tushunarsiz gapda qidirilmaydi) va kechikish to'ldiruvchisini aytadi."""
+        lang = route_lang
+        if cls is not None:
+            res = await _cls_result(cls, CLS_SEARCH_WAIT_S)
+            if res is not None:
+                if res[0] != "question":
+                    return False  # pastdagi mantiq xayrlashuv yoki qayta so'rashni beradi
+                lang = res[1]
+        await _say_filler(ws, lang, state)
+        return True
+
+    ans = asyncio.create_task(_timed(_llm_answer(contents, on_search)))
     cls = asyncio.create_task(_timed(_llm_classify(user_part, TURN_CLASSIFY, TURN_KINDS))) if user_part.inline_data is not None else None
     try:
         if cls is not None:
@@ -615,10 +800,28 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
     (savolga javob kechikmaydi). Qaytaradi: True — suhbat boshlandi, False — e'tiborsiz qoldirildi (brauzerga wake_ignored yuborildi)."""
     contents = [types.Content(role="user", parts=[user_part])]
     state.setdefault("spoke", False)
-    answer = asyncio.create_task(_timed(_llm_answer(contents)))
+    started = asyncio.Event()  # {"type":"started"} yuborildi: kechikish to'ldiruvchisi (audio) undan KEYIN aytiladi (brauzer yurib kelish to'sig'ini avval qo'yishi kerak)
+    cls = asyncio.create_task(_timed(_llm_classify(user_part)))
+
+    async def on_search(route_lang: str) -> bool:
+        """Faqat salom + SAVOL bo'lsa internetdan qidiriladi (salom/shovqinda qidirilmaydi); qidirish paytida to'ldiruvchi gap aytiladi."""
+        try:
+            (kind, lang), _ms = await asyncio.shield(cls)
+        except Exception:  # noqa: BLE001
+            return False
+        if kind != "question":
+            return False
+        try:
+            await asyncio.wait_for(started.wait(), 3.0)
+        except asyncio.TimeoutError:
+            pass
+        await _say_filler(ws, lang, state)
+        return True
+
+    answer = asyncio.create_task(_timed(_llm_answer(contents, on_search)))
     try:
         try:
-            (kind, lang), cms = await _timed(_llm_classify(user_part))
+            (kind, lang), cms = await cls
             state["understand_ms"] = cms
         except WebSocketDisconnect:
             raise
@@ -638,8 +841,10 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
                 state["t_first"] = time.monotonic()
                 state["delivering"] = True
                 await _say_cached(ws, settings.greeting_text)
+                await _send_pcm(ws, HELP_SILENCE)  # salomdan DARHOL keyin: «Sizga qanday yordam bera olaman?»
+                await _say_cached(ws, HELP_PROMPT_UZ)
                 state["voice"] = "cache"
-                greet_text = settings.greeting_text
+                greet_text = settings.greeting_text + " " + HELP_PROMPT_UZ
             else:
                 await ws.send_text(json.dumps({"type": "started"}))  # suhbat boshlandi (salom tasdiqlandi, tayyor salom videosi yo'q): avatar yurib keladi
                 greet_text = GREETING_OTHER[lang]
@@ -649,6 +854,7 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
             history.append(types.Content(role="model", parts=[types.Part(text=greet_text)]))
             return True
         await ws.send_text(json.dumps({"type": "started"}))  # salomlashib savol berdi: suhbat boshlandi (avatar yurib keladi), javob parallel tayyorlanayotgan edi
+        started.set()
         (clip, text), ams = await answer
         state["answer_ms"] = ams
         await _deliver(ws, clip, text, user_part, history, state)
@@ -666,8 +872,9 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
                 pass
         return True
     finally:
-        if not answer.done():
-            answer.cancel()
+        for t in (answer, cls):
+            if not t.done():
+                t.cancel()
 
 
 async def handle(ws: WebSocket, wake: bool = False) -> None:
@@ -724,6 +931,8 @@ async def handle(ws: WebSocket, wake: bool = False) -> None:
         cur["state"] = {"spoke": True, "delivering": True}
         try:
             await _say_cached(ws, settings.greeting_text)
+            await _send_pcm(ws, HELP_SILENCE)  # salomdan DARHOL keyin: «Sizga qanday yordam bera olaman?»
+            await _say_cached(ws, HELP_PROMPT_UZ)
         finally:
             try:
                 await ws.send_text(json.dumps({"type": "turn_complete"}))

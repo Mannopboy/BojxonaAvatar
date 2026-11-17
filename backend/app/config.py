@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     release_keep: int = 3  # eng yangi shuncha o'rnatuvchi saqlanadi (har biri ~68 MB)
 
     grounding_enabled: bool = True
+    # Ovozli suhbat (tts yo'li): tayyor javobga mos kelmagan savol INTERNETDAN qidiriladi (Google Search grounding; to'qimaydi). VOICE_WEB_SEARCH=false — eski usul (faqat tasdiqlangan faktlar)
+    voice_web_search: bool = True
+    # true — faqat RASMIY manba (allowed_sources) asosidagi javob aytiladi, aks holda «topa olmadim». false (standart) — norasmiy manbadagi javob ham aytiladi, lekin oxirida «bojxona xodimiga aniqlashtiring» deyiladi
+    voice_search_official_only: bool = False
     # Rasmiy manba allowlist (vergul bilan) — ADR-005
     allowed_sources: str = "customs.uz,lex.uz,gov.uz,my.gov.uz"
 
