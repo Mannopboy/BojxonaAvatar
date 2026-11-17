@@ -357,7 +357,22 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         long_sentence = "Uzun gap " * 60 + "tugadi."
         self.assertEqual(T._shorten("Qisqa. " + long_sentence), "Qisqa.")  # ikkinchi gap 340 belgidan oshadi
         self.assertEqual(T._shorten("Faqat bitta gap"), "Faqat bitta gap")
-        self.assertLessEqual(len(T._shorten(long_sentence)), 420)  # bitta uzun gap bo'lsa ham kesiladi
+        self.assertLessEqual(len(T._shorten(long_sentence)), 340)  # bitta uzun gap bo'lsa ham kesiladi
+
+    def test_leading_greeting_is_stripped_from_search_answer(self):
+        self.assertEqual(T._strip_greeting("Assalomu alaykum. Telefon uchun bojxona to'lovi bor."), "Telefon uchun bojxona to'lovi bor.")
+        self.assertEqual(T._strip_greeting("Assalomu alaykum, hurmatli yo'lovchi! To'lov bor."), "To'lov bor.")
+        self.assertEqual(T._strip_greeting("Здравствуйте! Пошлина есть."), "Пошлина есть.")
+        self.assertEqual(T._strip_greeting("Hello! A fee applies."), "A fee applies.")
+        self.assertEqual(T._strip_greeting("To'lov bor. Assalomu alaykum."), "To'lov bor. Assalomu alaykum.")  # faqat BOSHIDAGI salom
+        self.assertEqual(T._strip_greeting("Salomatlik uchun dori olib kirish mumkin."), "Salomatlik uchun dori olib kirish mumkin.")  # «salom» so'zi boshqa so'zning boshi
+        self.assertEqual(T._strip_greeting("Assalomu alaykum."), "Assalomu alaykum.")  # faqat salom bo'lsa — bo'sh javob chiqmasin
+
+    async def test_search_answer_does_not_repeat_the_greeting(self):
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("Assalomu alaykum. Aniq javob.", ["customs.uz"])):
+            self.assertEqual(await T._search_answer([]), "Aniq javob.")
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("Assalomu alaykum. Gazeta javobi.", ["gazeta.uz"])):
+            self.assertEqual(await T._search_answer([]), "Gazeta javobi. " + T.VERIFY_HINT["uz"])
 
     def test_search_prompt_forbids_inventing_and_naming_sources(self):
         self.assertIn("O'YLAB TOPMA", T.SEARCH_SYSTEM)
