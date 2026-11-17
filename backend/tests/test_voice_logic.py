@@ -253,6 +253,78 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, T.ANSWER_BY_ID["airport"]["text"])
         self.assertEqual(called, [])
 
+    async def test_chat_question_gets_direct_answer_without_search_or_filler(self):
+        """«Qanday yordam bera olasiz?» kabi gap: internetdan qidirilmaydi, «aniqlashtirib beraman» deyilmaydi, «xodimga murojaat qiling» ham emas."""
+        called: list = []
+
+        async def route(c):
+            return T.CHAT, "ru"
+
+        async def search(c, lang="uz"):
+            called.append("search")
+            return "x"
+
+        async def on_search(lang):
+            called.append("filler")
+            return True
+
+        async def chat(c, lang="uz"):
+            called.append("chat")
+            return "Я отвечаю на вопросы о таможенных правилах."
+
+        with mock.patch.object(T, "_route", route), mock.patch.object(T, "_search_answer", search), mock.patch.object(T, "_chat_answer", chat):
+            self.assertEqual(await T._llm_answer([], on_search), (None, "Я отвечаю на вопросы о таможенных правилах."))
+        self.assertEqual(called, ["chat"])
+
+    async def test_chat_answer_uses_chat_prompt_without_search_tool_and_falls_back(self):
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("**Men** bojxona savollariga javob beraman. Savolingizni bering.", [])):
+            self.assertEqual(await T._chat_answer([]), "Men bojxona savollariga javob beraman. Savolingizni bering.")
+        cfg = self.last_kw["config"]
+        self.assertTrue(cfg.system_instruction.startswith(T.CHAT_SYSTEM) and "FAQAT o'zbek tilida" in cfg.system_instruction)
+        self.assertFalse(cfg.tools)  # qidiruv vositasi ulanmagan
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("", [])):
+            self.assertEqual(await T._chat_answer([]), T.ANSWER_BY_ID["capabilities"]["text"])
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("x", [], raise_exc=RuntimeError("tarmoq"))):
+            self.assertEqual(await T._chat_answer([]), T.ANSWER_BY_ID["capabilities"]["text"])  # xatoda ham yo'lovchi foydali javob oladi
+
+    async def test_route_parses_chat_and_ignores_unknown_ids(self):
+        for model_clip, expected in (("chat", T.CHAT), ("airport", "airport"), ("capabilities", "capabilities"), ("nomalum", None), ("none", None)):
+            with mock.patch.object(T, "_gc", lambda c=model_clip: self._fake_client(json.dumps({"clip": c, "lang": "uz"}), [])):
+                self.assertEqual(await T._route([]), (expected, "uz"), model_clip)
+
+    async def test_ready_answers_are_not_used_for_russian_or_english_passengers(self):
+        """Tayyor javoblar o'zbekcha: ruscha/inglizcha yo'lovchiga o'zbekcha javob aytilmaydi."""
+        for lang in ("ru", "en"):
+            for model_clip, expected in (("capabilities", T.CHAT), ("chat", T.CHAT), ("airport", None), ("car", None), ("none", None)):
+                with mock.patch.object(T, "_gc", lambda c=model_clip, l=lang: self._fake_client(json.dumps({"clip": c, "lang": l}), [])):
+                    self.assertEqual(await T._route([]), (expected, lang), (lang, model_clip))
+
+    def test_route_and_chat_prompts_describe_the_capability_question(self):
+        ri = T._route_instruction()
+        self.assertIn("chat", ri)
+        self.assertIn("capabilities", ri)
+        self.assertIn("qanday yordam bera olasiz", ri)
+        for banned in ("aniqlashtirib beraman", "xodimga murojaat qiling"):
+            self.assertIn(banned, T.CHAT_SYSTEM.lower())  # ... DEMA deb taqiqlangan
+        self.assertIn("DEMA", T.CHAT_SYSTEM)
+        self.assertIn("capabilities", T.ANSWER_BY_ID)
+        self.assertNotIn("capabilities", T.READY_CLIPS)  # videosiz, faqat oldindan ovozlangan audio
+
+    async def test_answer_language_is_stated_explicitly_to_the_model(self):
+        """Ruscha savolga o'zbekcha javob berilib qolmasin (prompt o'zbekcha — model tilni o'zi adashtirardi)."""
+        self.assertIn("FAQAT rus tilida", T._lang_directive("ru"))
+        self.assertIn("FAQAT ingliz tilida", T._lang_directive("en"))
+        self.assertIn("FAQAT o'zbek tilida", T._lang_directive("xx"))
+        with mock.patch.object(T, "_gc", lambda: self._fake_client("Ответ.", ["customs.uz"])):
+            await T._search_answer([], "ru")
+        self.assertIn("FAQAT rus tilida", self.last_kw["config"].system_instruction)
+        for lang, name in (("ru", "Russian"), ("en", "English")):
+            with mock.patch.object(T, "_gc", lambda: self._fake_client("Ответ.", [])):
+                await T._chat_answer([], lang)
+            si = self.last_kw["config"].system_instruction
+            self.assertIn("Reply ONLY in " + name, si)  # chet tili yo'lovchisiga inglizcha prompt (o'zbekcha prompt o'zbekcha javobga undardi)
+            self.assertNotIn("TASDIQLANGAN FAKTLAR", si)
+
     async def test_open_question_is_searched_and_filler_callback_runs(self):
         langs: list = []
 

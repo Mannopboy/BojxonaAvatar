@@ -113,6 +113,15 @@ async function scenario({ name, wav, expect }) {
       ok("javob keldi (tayyor klip yoki ovoz)", types.includes("clip") || sec >= 2, types.includes("clip") ? "tayyor klip" : `${sec.toFixed(1)} s audio`);
       ok("avatar yurib keldi, javob undan KEYIN", arriveAt !== undefined);
       ok("suhbat ketyapti", btn.stop);
+    } else if (expect === "capability") {
+      // «Assalomu alaykum! Qanday yordam bera olasiz?» — avatarning o'zi haqidagi savol: qidirilmaydi, to'g'ridan-to'g'ri javob («aniqlashtirib beraman» / «xodimga murojaat qiling» YO'Q)
+      ok("backend 'started' belgisini yubordi (suhbat boshlandi)", types.includes("started"));
+      ok("«Hozir aniqlashtirib beraman» DEMADI (qidirilmadi)", !/aniqlashtirib beraman/i.test(transcript), transcript.slice(0, 80));
+      ok("«xodimga murojaat qiling» / «topa olmadim» DEMADI", !/murojaat qiling|topa olmadim/i.test(transcript), transcript.slice(0, 120));
+      ok("nima qila olishini aytdi (bojxona qoidalari bo'yicha javob beraman)", /bojxona qoidalari/i.test(transcript) && /Savolingizni bering/i.test(transcript), transcript.slice(0, 120));
+      ok("javob ovozi keldi (oldindan ovozlangan, ~11 s)", sec >= 5, `${sec.toFixed(1)} s`);
+      ok("avatar yurib keldi, javob undan KEYIN", arriveAt !== undefined);
+      ok("suhbat ketyapti", btn.stop);
     } else if (expect === "ignored") {
       // shovqin YOKI salomsiz gap/savol: suhbat boshlanmaydi, avatar yaqinlashmaydi
       ok("ws ochildi va backend wake_ignored dedi", types.includes("wake_ignored"));
