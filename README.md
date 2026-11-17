@@ -57,7 +57,7 @@ Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga
 | `idle.mp4` (~5 s) | tinglayotgan avatar, og'iz yopiq, bitta pirpirash; takrorlanadi | ovoz yo'q: tinglayotganda, javob tugagach |
 | `speaking-01..NN.mp4` (6–8 s) | gapirish **variantlari** (turli lab harakati); har klip uy pozasida boshlanib tugaydi | **ovoz eshitilayotganda**: tasodifiy variant, tugayotganda keyingisi (oldingisidan boshqa) ulanadi |
 | `greeting.mp4` (8 s) | qo'li bilan salom, bir marta: qo'l ~0.75 s da boshga yetadi (lablar yopiq), og'iz ~1.5 s da ochiladi | birinchi salom audiosi kelishi bilan; **ovoz qo'l boshga yetgach chalinadi** (ovoz kelmasa 15 s dan keyin) |
-| `arrive.mp4` (~3,9 s, ovozsiz) | avatar qora fondan **uzoqdan yurib keladi** va uy pozasida to'xtaydi: birinchi kadr sof qora, oxirgi kadr `greeting` birinchi kadriga aynan teng (tikuvda sakrash 0,07 px) | web pleyerda **ishlatilmaydi** — Windows kiosk ilovasi (`assets/avatar/arrive.mp4`) kutish ekranidan keyin, salomdan **oldin** o'ynatadi; fayl saytdan ham olinadi: `/avatar/arrive.mp4` |
+| `arrive.mp4` (~3,9 s, ovozsiz) | avatar qora fondan **uzoqdan yurib keladi** va uy pozasida to'xtaydi: birinchi kadr sof qora, oxirgi kadr `greeting` birinchi kadriga aynan teng (tikuvda sakrash 0,07 px) | **suhbat boshlanganda** (tugma ham, salom bilan ham): salom/javobdan **oldin**. Kutish rejimida avatar ko'rinmaydi (qora ekran), suhbat boshlanishi bilan klip o'ynaydi; **salom videosi, tayyor javob klipi va hamma ovoz klip tugaguncha kutadi** (`liveAudio` `holdUntil`), tugagach salom boshlanadi. Klip yuklanmasa 1,5 s dan keyin eski tartib; `?arrive=0` — butunlay o'chirish (avatar kutishda ham ko'rinadi). Windows kiosk ilovasi ham shu faylni oladi: `/avatar/arrive.mp4` |
 
 ### Ovoz (backend)
 Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
@@ -221,6 +221,9 @@ jimlikda suhbat `endSec` dan keyin o'zi tugashi va kutish rejimiga qaytishi, «o
 
 **Avatar surish + zoom** (haqiqiy Chrome, dev server ishlab turishi kerak): `TARGET=http://127.0.0.1:5173/ node scripts/test-avatar-view.mjs` — spec «Tekshiruv» ro'yxati: hech narsa bosmasdan klavishlar, 4 yo'nalish, ushlab turish,
 chegara, zoom min/max, hamma qatlam birga suriladi, 400 ms debounce va qayta ochganda birinchi kadrdan joyida, buzuq qiymat → default, vertikal ekranda nisbat, matn maydoni/Ctrl/boshqa klavishlar ushlanmaydi.
+
+**Yurib kelish** (`arrive.mp4`, yig'ilgan `dist` + soxta WebSocket, backend kerak emas): `npm run build && node scripts/test-arrive.mjs` — A) kutishda avatar yo'q, tugma bosilgach klip 0,8 s ichida, salom videosi klip tugagach, salom ovozi videodan ~1,49 s keyin (sinxron),
+tugatilganda yana qora; B) `?arrive=0` eski ko'rinish; C) klip yuklanmasa 2 s ichida eski tartib; D) tayyor javob klipi yurib kelish tugagach boshlanadi (~2 daqiqa). `test-avatar-transitions.mjs` `?arrive=0` bilan yuradi (qatlam o'tishlari alohida sinaladi); `test-wake.mjs` klip uchun +5 s ko'proq kutadi.
 
 **Salom bilan boshlash** (haqiqiy backend + Chrome soxta mikrofon): `TARGET=http://127.0.0.1:5173/ SCEN="nom|fayl.wav|kutilgan,..." node scripts/test-wake.mjs` — kutilgan: `uz_greeting`, `ru_greeting`, `question`, `ignored` (shovqin),
 `nothing` (jimlik). Har sahnada alohida Chrome; fayl: 3 s jimlik + gap + ~14 s jimlik. `AUTOPLAY=0` — autoplay flagsiz. ⚠️ Salom/shovqin sahnalari LLM chaqiradi, ruscha salom va savol 1 ta TTS so'rovi sarflaydi.

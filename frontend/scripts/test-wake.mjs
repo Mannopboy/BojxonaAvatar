@@ -66,7 +66,8 @@ async function scenario({ name, wav, expect }) {
     };
     const started = Date.now();
     while ((Date.now() - started) / 1000 < (expect === "nothing" ? 18 : WAIT_S) && !done()) await sleep(500);
-    await sleep(expect === "ignored" ? 2500 : 1500);
+    // yurib kelish (arrive.mp4, ~3.9 s) yoqilgan bo'lsa salom videosi/javob klipi javob (turn_complete) keldi'dan KEYIN, klip tugagach boshlanadi — shuncha ko'proq kutiladi
+    await sleep((expect === "ignored" ? 2500 : 1500) + (/arrive=0/.test(TARGET) ? 0 : 5000));
 
     const types = ws.text.map((x) => x.m.type);
     const ready = ws.text.find((x) => x.m.type === "ready");

@@ -39,7 +39,7 @@ const LIMITS = { latencyMs: 110, stallMs: 110, flashPct: 6, captureGapMs: 100 };
 const REGIONS = { cap: [450, 80, 640, 212], face: [460, 218, 620, 350], mouth: [495, 288, 585, 332], body: [300, 420, 780, 1500], all: [300, 60, 780, 1500] };
 
 const server = process.env.TARGET ? null : await preview({ root: FRONT, logLevel: "error", preview: { port: 4177, strictPort: true, host: "127.0.0.1" } });
-const URL0 = process.env.TARGET || "http://127.0.0.1:4177/";
+const URL0 = process.env.TARGET || "http://127.0.0.1:4177/?arrive=0"; // yurib kelish (arrive.mp4) bu testda o'chirilgan: u alohida test-arrive.mjs da sinaladi
 const browser = await puppeteer.launch({
   executablePath: CHROME,
   headless: process.env.HEADFUL ? false : true,
