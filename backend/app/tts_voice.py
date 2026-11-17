@@ -95,7 +95,7 @@ SEARCH_SYSTEM = (
     "(forum, izoh va blog yozuvlariga ISHONMA; manbalar bir-biriga zid bo'lsa aytma). O'z xotirangdan aniq raqam, summa, foiz, muddat, sana, tarif, telefon yoki qonun moddasini O'YLAB TOPMA va taxmin qilma. "
     "Manba nomini aytma (customs.uz va h.k. deb) — faqat javobning o'zini ayt. Rasmiy manbadan aniq javob topa olmasang yoki manbalar bir-biriga zid bo'lsa — faqat NOT_FOUND so'zini yoz (boshqa hech narsa).\n"
     "QISQALIK (juda muhim): javob ko'pi bilan UCH ta qisqa gap, jami 300 belgigacha — eng muhim narsani ayt (hujjatlar ro'yxati bo'lsa — faqat eng asosiy ikki-uchtasini); batafsil ma'lumot uchun 'customs.uz saytiga yoki bojxona xodimiga murojaat qiling' deb yo'naltir.\n"
-    "USLUB: rasmiy, xushmuomala, iliq. Yo'lovchiga doim 'Siz' deb murojaat qil. Salomlashma va o'zingni tanishtirma — bu allaqachon aytilgan.\n"
+    "USLUB: rasmiy, xushmuomala, iliq. Yo'lovchiga doim 'Siz' deb murojaat qil. Salomlashish allaqachon bo'lgan: yo'lovchi gapida salom bo'lsa ham SEN salomlashma («Assalomu alaykum» deb BOSHLAMA) va o'zingni tanishtirma — to'g'ridan-to'g'ri javobdan boshla.\n"
     "TIL: yo'lovchi qaysi tilda gapirsa (o'zbek, rus yoki ingliz), o'sha tilda javob ber. Asosiy til — o'zbekcha.\n"
     "YOZUV (juda muhim, javob ovozlanadi): faqat oddiy gaplar — markdown, ro'yxat belgisi, qavs, emoji, havola va maxsus belgi ISHLATMA. "
     "Barcha raqam, summa va sonlarni SO'Z bilan yoz (masalan 'bir ming dollar', 'besh yuz dollar'), raqam yozma. '$' o'rniga 'dollar', '%' o'rniga 'foiz' deb yoz."
@@ -439,6 +439,18 @@ def _is_official(domain: str) -> bool:
     return bool(d) and any(d == a or d.endswith("." + a) for a in settings.allowed_source_list)
 
 
+_LEADING_GREETING = re.compile(
+    r"^\s*(?:assalomu\s+alaykum|assalom\s+alaykum|salom|hayrli\s+(?:kun|tong|kech)|здравствуйте|добрый\s+(?:день|вечер)|доброе\s+утро|привет|hello|hi|good\s+(?:morning|afternoon|evening|day))\b[^.!?]{0,40}[.!?]+\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_greeting(text: str) -> str:
+    """Yo'lovchi salomlashib savol bersa, model javobni yana «Assalomu alaykum.» bilan boshlashi mumkin — salom allaqachon aytilgan, shuning uchun boshidagi salom gapi olib tashlanadi."""
+    stripped = _LEADING_GREETING.sub("", text, count=1).strip()
+    return stripped or text
+
+
 def _shorten(text: str, max_sentences: int = 3, max_chars: int = 340) -> str:
     """Ovozli javob uchun: ko'pi bilan `max_sentences` gap va `max_chars` belgi (gap chegarasida kesiladi). Model uzun yozsa ham yo'lovchi 50 soniya tinglamasin."""
     parts = re.split(r"(?<=[.!?])\s+", text.strip())
@@ -471,6 +483,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     log.info("qidiruv: %d manba (rasmiy %d) %s | javob: %s", len(sources), len(official), sources[:5], text[:90])
     if not text or raw.upper().replace(" ", "_").startswith("NOT_FOUND") or not sources:
         return None
+    text = _strip_greeting(text)
     if not official:
         if settings.voice_search_official_only:
             return None
