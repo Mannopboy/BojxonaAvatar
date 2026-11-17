@@ -57,6 +57,7 @@ Sayt 3D modelni **yuklamaydi**. Avatar — haqiqiy xodim (rasmidan foydalanishga
 | `idle.mp4` (~5 s) | tinglayotgan avatar, og'iz yopiq, bitta pirpirash; takrorlanadi | ovoz yo'q: tinglayotganda, javob tugagach |
 | `speaking-01..NN.mp4` (6–8 s) | gapirish **variantlari** (turli lab harakati); har klip uy pozasida boshlanib tugaydi | **ovoz eshitilayotganda**: tasodifiy variant, tugayotganda keyingisi (oldingisidan boshqa) ulanadi |
 | `greeting.mp4` (8 s) | qo'li bilan salom, bir marta: qo'l ~0.75 s da boshga yetadi (lablar yopiq), og'iz ~1.5 s da ochiladi | birinchi salom audiosi kelishi bilan; **ovoz qo'l boshga yetgach chalinadi** (ovoz kelmasa 15 s dan keyin) |
+| `arrive.mp4` (~3,9 s, ovozsiz) | avatar qora fondan **uzoqdan yurib keladi** va uy pozasida to'xtaydi: birinchi kadr sof qora, oxirgi kadr `greeting` birinchi kadriga aynan teng (tikuvda sakrash 0,07 px) | web pleyerda **ishlatilmaydi** — Windows kiosk ilovasi (`assets/avatar/arrive.mp4`) kutish ekranidan keyin, salomdan **oldin** o'ynatadi; fayl saytdan ham olinadi: `/avatar/arrive.mp4` |
 
 ### Ovoz (backend)
 Ayol ovozi (`GEMINI_VOICE=Kore`). `VOICE_ENGINE` (`backend/app/config.py`):
