@@ -1,6 +1,8 @@
 // Gemini Live real-time audio — mikrofon → backend WS → Gemini → audio qaytadi.
 // Lip-sync uchun ijro etilayotgan audio balandligini (level 0..1) beradi.
 
+import { gateRemainingS } from "./arrive";
+
 export type LiveState = "connecting" | "listening" | "speaking" | "error" | "stopped";
 
 /** Javob (turn) holati: avatar videosi ovoz tugashini OLDINDAN biladi (TTS audiosi tez keladi, hamma audio chalinadiganlar navbatda). */
@@ -45,6 +47,8 @@ export interface LiveOpts {
   onGreetAudio?: () => void;
   /** salom audiosi qancha kechiktiriladi (soniya): salom videosida qo'l boshga yetib borguncha ovoz bo'lmasin */
   greetDelayS?: number;
+  /** yurib kelish klipi tugaydigan payt (performance.now, ms; 0 — yo'q): birinchi ovoz (salom ham, javob ham) shu paytdan oldin chalinmaydi */
+  holdUntil?: () => number;
   /** javob davomida true: audio kelgan paytdan to turn_complete va ijro tugaguncha — jumlalar orasidagi pauzada og'iz yopilib-ochilmasin */
   turnRef?: { current: TurnInfo };
   /** backend tayyor javob klipini tanladi (lab harakati o'z ovoziga mos video): pleyer uni ijro etadi, WS orqali audio kelmaydi */
@@ -69,7 +73,7 @@ function wsUrl(wake: boolean): string {
 }
 
 export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
-  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored, onUserSpeech } = opts;
+  const { onState, onLevel, onError, onGreetAudio, greetDelayS = 0, holdUntil, turnRef, onClip, onClips, wake, onGreeting, onWakeIgnored, onUserSpeech } = opts;
   onState("connecting");
 
   // --- Playback (Gemini audio: PCM16 24kHz) ---
@@ -184,15 +188,16 @@ export async function startLive(opts: LiveOpts): Promise<LiveHandle> {
     if (turnPlaying) return;
     turnPlaying = true;
     window.clearTimeout(pendTimer);
+    const hold = gateRemainingS(holdUntil?.() ?? 0, performance.now()); // yurib kelish klipi tugaguncha ovoz kutadi (salom videosi ham shunda boshlanadi)
     if (!greeted) {
       greeted = true;
-      nextTime = playCtx.currentTime + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
+      nextTime = playCtx.currentTime + hold + greetDelayS; // salom ovozi kechiktiriladi (video shu paytda boshlanadi)
       onGreetAudio?.();
       (window as unknown as { __avatarDbg?: unknown[] }).__avatarDbg?.push({ ev: "latency", outputLatency: playCtx.outputLatency, baseLatency: playCtx.baseLatency });
     } else {
       // javob ovozi: bosh jimlik (TTS audiosida odatda bor) video oldindan boshlanishiga yetadi, yetmasa ovoz shuncha kechiktiriladi — og'iz ovoz bilan birga ochiladi
       const lead = leadingSilence(pend);
-      nextTime = playCtx.currentTime + Math.max(0.05, VIDEO_LEAD_S + 0.03 - lead);
+      nextTime = playCtx.currentTime + hold + Math.max(0.05, VIDEO_LEAD_S + 0.03 - lead);
       startsAt = nextTime + lead;
     }
     const q = pend;

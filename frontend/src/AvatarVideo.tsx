@@ -14,6 +14,7 @@
 //  - Variantdan variantga: oldingisi tugashiga CHAIN_LEAD_S qolganda keyingisi (ikkinchi bufer, oldindan yuklangan) boshlanadi — ikkalasi uy kadrida.
 //  - Chiqish: gapirishdan kutishga FAQAT og'iz yopiq va bosh kutish o'rnida bo'lgan oraliqlarda (avatarClips.json); salom oxirida uy kadri.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
+import { ARRIVE_FALLBACK_S, ARRIVE_FILE, ARRIVE_START_TIMEOUT_MS, arriveEnabled, type ArriveGate } from "./arrive";
 import { FRAME_H, FRAME_W, SPEAKING_VARIANTS, assetUrl, isExitTime, isHoldTime, pickLinked, pickTransition, pickVariant, planExit, transitionsFor, PLAN_MAX_RATE, PLAN_MIN_RATE } from "./avatarClips";
 import { VIDEO_LEAD_S, type TurnInfo } from "./liveAudio";
 import { useAvatarView } from "./useAvatarView";
@@ -75,6 +76,10 @@ interface Props {
   greetKey: number;
   /** har ortishida salomning birinchi audiosi keldi: salom videosi boshlanadi (ovoz GREETING_SPEECH_START_S dan keyin chalinadi) */
   greetStart: number;
+  /** har ortishida suhbat boshlandi: avatar uzoqdan yurib keladi (arrive.mp4); salom videosi, javob klipi va ovoz shu tugaguncha kutadi */
+  arriveKey: number;
+  /** yurib kelish tugaydigan payt (performance.now, ms): boshlanishida App taxminiy qo'yadi, klipning birinchi kadrida bu yerda aniqlashtiriladi */
+  gate: MutableRefObject<ArriveGate>;
   /** javob davomida true (liveAudio): jumlalar orasidagi pauzada og'iz yopilib-ochilmasin */
   turnRef: MutableRefObject<TurnInfo>;
   /** tayyor javob klipi (/avatar/answers/<id>.mp4 — video O'Z OVOZI bilan, lab harakati ovozga mos); key har yangi javobda ortadi */
@@ -110,7 +115,12 @@ const park = (v: HTMLVideoElement | null) => {
   }
 };
 
-export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, answer, onAnswerEnd }: Props) {
+export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey, gate, turnRef, answer, onAnswerEnd }: Props) {
+  const arriveOn = useRef(arriveEnabled()).current; // ?arrive=0 — yurib kelish o'chiq: avatar kutishda ham ko'rinadi (eski ko'rinish)
+  const arriveEl = useRef<HTMLVideoElement>(null);
+  const arriveActive = useRef(false); // yurib kelish klipi ijro etilyapti: salom, javob klipi va ovoz uning tugashini kutadi
+  const greetDeferred = useRef(false); // salom yurib kelish davomida so'ralgan — klip tugagach boshlanadi
+  const [rigOn, setRigOn] = useState(!arriveOn); // yurib kelish yoqilganda kutish rejimida avatar ko'rinmaydi (qora ekran): aks holda yurib kelish "sakrab" chiqardi
   const answerEl = useRef<HTMLVideoElement>(null);
   const answerOn = useRef(false);
   const onAnswerEndRef = useRef(onAnswerEnd);
@@ -123,7 +133,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
   const greetRef = useRef(false);
   const voiceRef = useRef(false);
   const pendingGreet = useRef(false);
-  const timers = useRef<{ fade?: number; greet?: number; exit?: number }>({});
+  const timers = useRef<{ fade?: number; greet?: number; exit?: number; arrive?: number }>({});
   // gapirish buferlari: cur — ijro etilayotgan/navbatdagi, staged — har buferga yuklangan variant, last — oxirgi ijro etilgan variant
   const speak = useRef<{ cur: "a" | "b"; staged: Record<"a" | "b", number>; last: number }>({ cur: "a", staged: { a: -1, b: -1 }, last: -1 });
   const sw = useRef<{ to: "a" | "b"; t: number; u: number; pre: number; started: boolean; at: number } | null>(null); // rejalangan kadr-mos almashinuv (A t soniyada -> B u soniyadan)
@@ -134,7 +144,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
   const speakSince = useRef(0); // joriy gapirish klipi boshlangan payt (performance.now)
   const exiting = useRef<"a" | "b" | null>(null); // chiqish davom etyapti: shu gapirish buferi yopiq lablar kadrida muzlatilgan
   const exitSince = useRef<number | null>(null); // ovoz tugagan payt (o'tish oralig'ini kutish boshlangan)
-  const [view, setView] = useState<{ front: Layer; prev: Layer | null; out: Layer | null; greet: boolean; fadeMs: number; bodyFade: boolean; answer: boolean }>({
+  const [view, setView] = useState<{ front: Layer; prev: Layer | null; out: Layer | null; greet: boolean; fadeMs: number; bodyFade: boolean; answer: boolean; arrive: boolean }>({
     front: "idle",
     prev: null,
     out: null,
@@ -142,6 +152,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
     fadeMs: EXIT_FADE_MS,
     bodyFade: false,
     answer: false,
+    arrive: false,
   });
 
   /** Buferga variant yuklaydi (to'xtatilgan, boshida). */
@@ -264,10 +275,35 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
   }, [startFadeTimer]);
 
   const startGreeting = useCallback(() => {
+    if (arriveActive.current) {
+      greetDeferred.current = true; // avatar hali yurib kelyapti: salom klip tugagach (finishArrive) boshlanadi
+      return;
+    }
     pendingGreet.current = false;
     window.clearTimeout(timers.current.greet);
     apply(frontRef.current !== "idle", true);
   }, [apply]);
+
+  /** Yurib kelish tugadi: to'siq ochiladi, klip xiralashib ostidagi avatarga (salom yoki kutish) o'tadi — oxirgi kadr salomning birinchi kadriga teng, sezilmaydi. Kutilgan salom boshlanadi. */
+  const finishArrive = useCallback(() => {
+    if (!arriveActive.current) return;
+    arriveActive.current = false;
+    window.clearTimeout(timers.current.arrive);
+    gate.current.endsAt = 0;
+    setView((s) => (s.arrive ? { ...s, arrive: false } : s));
+    if (greetDeferred.current) {
+      greetDeferred.current = false;
+      if (pendingGreet.current) startGreeting();
+    }
+  }, [gate, startGreeting]);
+
+  /** Klip ijro etilmadi (fayl yo'q, brauzer to'sdi, vaqtida boshlanmadi): eski tartib — avatar kutishda ko'rinadi, salom kutilganidek boshlanadi. */
+  const abortArrive = useCallback(() => {
+    if (!arriveActive.current) return;
+    setRigOn(true);
+    arriveEl.current?.pause();
+    finishArrive();
+  }, [finishArrive]);
 
   const afterGreeting = useCallback(() => {
     if (greetRef.current) apply(voiceRef.current, false);
@@ -334,6 +370,11 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
     let lastVoice = -1e9;
     const tick = () => {
       const now = performance.now();
+      if (arriveActive.current) {
+        // avatar yurib kelyapti: ovoz (liveAudio holdUntil) shu vaqtgacha kutadi, gapirish/salom videolari tegilmaydi
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       // Javob ovozi eshitilishiga VIDEO_LEAD_S qolganda klip boshlanadi (klip kirishi ~0.25 s: og'iz ovoz bilan birga ochilsin); keyin ovozning o'zi (balandlik) boshqaradi
       if (levelRef.current > VOICE_ON || (turnRef.current.active && turnRef.current.startsIn <= VIDEO_LEAD_S)) lastVoice = now;
       const voice = now - lastVoice < (turnRef.current.active ? VOICE_HOLD_TURN_MS : VOICE_HOLD_MS);
@@ -630,6 +671,41 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
     return () => cancelAnimationFrame(raf);
   }, [levelRef, turnRef, apply, startGreeting, chainNext, resumeSpeaking, startFadeTimer]);
 
+  // YURIB KELISH: suhbat boshlanganda klip boshidan o'ynaydi. Birinchi kadr chizilgach avatar ko'rinadi va to'siq (gate) klipning HAQIQIY tugash paytiga aniqlashtiriladi:
+  // shu paytgacha salom videosi, javob klipi va ovoz kutadi (liveAudio holdUntil). Klip ARRIVE_START_TIMEOUT_MS ichida boshlanmasa — eski tartib (abortArrive).
+  useEffect(() => {
+    if (arriveKey === 0 || !arriveOn) return;
+    const el = arriveEl.current;
+    if (!el) return;
+    arriveActive.current = true;
+    greetDeferred.current = false;
+    let cancelled = false;
+    const onPlaying = () => {
+      if (cancelled || !arriveActive.current) return;
+      const durS = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : ARRIVE_FALLBACK_S;
+      const leftMs = Math.max(0, (durS - el.currentTime) * 1000);
+      gate.current.endsAt = performance.now() + leftMs;
+      window.clearTimeout(timers.current.arrive);
+      timers.current.arrive = window.setTimeout(finishArrive, leftMs);
+      setRigOn(true);
+      setView((s) => ({ ...s, arrive: true }));
+    };
+    el.addEventListener("playing", onPlaying, { once: true });
+    try {
+      el.currentTime = 0;
+    } catch {
+      /* metadata hali yuklanmagan */
+    }
+    el.playbackRate = 1;
+    el.play().catch(abortArrive);
+    window.clearTimeout(timers.current.arrive);
+    timers.current.arrive = window.setTimeout(abortArrive, ARRIVE_START_TIMEOUT_MS);
+    return () => {
+      cancelled = true;
+      el.removeEventListener("playing", onPlaying);
+    };
+  }, [arriveKey, arriveOn, gate, finishArrive, abortArrive]);
+
   // Yangi suhbat: salom kutiladi (ovoz kelmasa ham GREET_FALLBACK_MS dan keyin ijro etiladi).
   useEffect(() => {
     if (greetKey === 0) return;
@@ -679,17 +755,25 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
         cancelled = true;
         onAnswerEndRef.current(); // klip yuklanmadi — suhbat davom etsin
       }
-    }, 5000);
+    }, 5000 + (arriveActive.current ? ARRIVE_FALLBACK_S * 1000 : 0));
     el.src = assetUrl(`answers/${answer.id}.mp4`);
     el.load();
-    if (el.readyState >= 3) start();
-    else el.addEventListener("canplay", start, { once: true });
+    // avatar hali yurib kelyapti bo'lsa — klip uning tugashini kutadi (video o'z ovozi bilan: yurib kelish paytida eshitilmasin)
+    let startT = 0;
+    const kick = () => {
+      const wait = arriveActive.current ? Math.max(0, gate.current.endsAt - performance.now()) + 40 : 0;
+      if (wait > 0) startT = window.setTimeout(start, wait);
+      else start();
+    };
+    if (el.readyState >= 3) kick();
+    else el.addEventListener("canplay", kick, { once: true });
     return () => {
       cancelled = true;
       window.clearTimeout(fail);
-      el.removeEventListener("canplay", start);
+      window.clearTimeout(startT);
+      el.removeEventListener("canplay", kick);
     };
-  }, [answer, apply, endAnswer]);
+  }, [answer, apply, endAnswer, gate]);
 
   // Suhbat tugadi — kutilayotgan salom bekor, avatar idle'ga qaytadi.
   useEffect(() => {
@@ -697,7 +781,15 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
     pendingGreet.current = false;
     window.clearTimeout(timers.current.greet);
     window.clearTimeout(timers.current.exit);
+    window.clearTimeout(timers.current.arrive);
     exitSince.current = null;
+    // yurib kelish bekor: klip to'xtaydi, to'siq ochiladi, kutish rejimida avatar yana ko'rinmaydi (yurib kelish yoqilgan bo'lsa)
+    arriveActive.current = false;
+    greetDeferred.current = false;
+    gate.current.endsAt = 0;
+    arriveEl.current?.pause();
+    setView((s) => (s.arrive ? { ...s, arrive: false } : s));
+    setRigOn(!arriveOn);
     if (answerOn.current) {
       answerOn.current = false;
       greetRef.current = false;
@@ -705,7 +797,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
       setView((s) => ({ ...s, answer: false }));
     }
     apply(false, false);
-  }, [active, apply]);
+  }, [active, apply, arriveOn, gate]);
 
   useEffect(() => {
     const t = timers.current;
@@ -713,12 +805,13 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
       window.clearTimeout(t.fade);
       window.clearTimeout(t.greet);
       window.clearTimeout(t.exit);
+      window.clearTimeout(t.arrive);
     };
   }, []);
 
   return (
     <div ref={containerRef} className="avatar-video" role="img" aria-label="Bojxona virtual xodimi">
-      <div ref={rigRef} className="avatar-rig">
+      <div ref={rigRef} className={`avatar-rig${rigOn ? "" : " off"}`}>
         {LAYERS.map((name) => (
           <video
             key={name}
@@ -756,6 +849,21 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, turnRef, a
           }}
         />
         <video ref={answerEl} className={`rig-answer${view.answer ? " on" : ""}`} playsInline preload="auto" disablePictureInPicture tabIndex={-1} onEnded={endAnswer} onError={endAnswer} />
+        {/* Yurib kelish: hamma qatlam USTIDA (opak qora fon ostidagi kutish avatarini yashiradi); tugagach xiralashib salom/kutishga o'tadi. Yurib kelish o'chiq bo'lsa DOMda yo'q. */}
+        {arriveOn && (
+          <video
+            ref={arriveEl}
+            className={`rig-arrive${view.arrive ? " on" : ""}`}
+            src={assetUrl(ARRIVE_FILE)}
+            muted
+            playsInline
+            preload="auto"
+            disablePictureInPicture
+            tabIndex={-1}
+            onEnded={finishArrive}
+            onError={abortArrive}
+          />
+        )}
       </div>
     </div>
   );

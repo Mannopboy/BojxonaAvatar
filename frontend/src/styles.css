@@ -61,7 +61,9 @@ body {
 .scene { position: relative; min-height: 0; background: #000; }
 /* AvatarVideo.tsx: 3 ta to'liq kadrli video bir-birining ustida (xira-o'tish bilan almashadi). O'lcham JS da o'rnatiladi (sahnaga sig'adi, 9:16). */
 .avatar-video { position: absolute; inset: 0; overflow: hidden; background: #000; isolation: isolate; }
-.avatar-rig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.avatar-rig { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); transition: opacity 400ms linear; }
+/* Kutish rejimida (suhbat yo'q) avatar ko'rinmaydi — qora ekran: suhbat boshlanganda u uzoqdan yurib keladi (arrive.mp4, AvatarVideo.tsx). ?arrive=0 da bu sinf qo'yilmaydi. */
+.avatar-rig.off { opacity: 0; }
 .avatar-rig video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; pointer-events: none; will-change: opacity; }
 /* Yashirin klip opacity: 0 emas, 0.01: aks holda brauzer uni chizmay qo'yadi va ko'rinishi bilan bir kadr qora chiqishi mumkin.
    Ustida har doim to'liq noshaffof .on klip turadi, shuning uchun 1% sezilmaydi. */
@@ -79,6 +81,10 @@ body {
 .rig-answer { z-index: 4; opacity: 0.01; transition: opacity 400ms linear; }
 .rig-answer.on { opacity: 1; transition: opacity 150ms linear; }
 .rig-greeting.on { opacity: 1; transition: opacity 150ms linear; } /* salom ovoz bilan birga tez paydo bo'ladi */
+/* Yurib kelish (arrive.mp4): hamma qatlam ustida; klipning fon va birinchi kadri butunlay qora, shuning uchun ostidagi kutish avatarini yashiradi. Darhol paydo bo'ladi,
+   tugagach 400 ms da xiralashib ostidagi salom/kutishga o'tadi (oxirgi kadr salomning birinchi kadriga teng). */
+.rig-arrive { z-index: 6; opacity: 0.01; transition: opacity 400ms linear; } /* 0.01: boshqa qatlamlar kabi — brauzer chizishni to'xtatib qo'ymasin */
+.rig-arrive.on { opacity: 1; transition: none; }
 .status {
   z-index: 5;
   position: absolute; top: 16px; left: 16px; /* avatar tik va sahnaning o'rtasida turadi — chap burchakda boshiga tegmaydi */

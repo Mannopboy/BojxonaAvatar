@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AvatarVideo } from "./AvatarVideo";
+import { ARRIVE_FALLBACK_S, ARRIVE_GUARD_MS, arriveEnabled, type ArriveGate } from "./arrive";
 import { GREETING_SPEECH_START_S, assetUrl } from "./avatarClips";
 import { newTurnInfo, startLive, type LiveHandle, type LiveState, type TurnInfo } from "./liveAudio";
 import { micErrorMessage } from "./micError";
@@ -13,6 +14,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [greetKey, setGreetKey] = useState(0);
   const [greetStart, setGreetStart] = useState(0); // birinchi (salom) audio keldi — salom videosi boshlanadi
+  const [arriveKey, setArriveKey] = useState(0); // har ortishida avatar uzoqdan yurib keladi (AvatarVideo); shu vaqt ichida salom va ovoz kutadi
+  const gateRef = useRef<ArriveGate>({ endsAt: 0 }); // yurib kelish tugaydigan payt (performance.now, ms; 0 — yo'q): liveAudio ovozni shu paytgacha ushlab turadi
   const [answer, setAnswer] = useState<{ id: string; key: number } | null>(null); // backend tanlagan tayyor javob klipi
   const turnRef = useRef<TurnInfo>(newTurnInfo()); // javob holati (AvatarVideo: jumlalar orasida og'iz yopilib ketmasin, ovoz tugashi oldindan ma'lum)
   const levelRef = useRef(0); // avatar ovozining balandligi — og'iz FAQAT ovoz bor paytda qimirlaydi (AvatarVideo)
@@ -95,6 +98,10 @@ export default function App() {
     stopStandby();
     setError("");
     setState("connecting");
+    if (arriveEnabled()) {
+      gateRef.current.endsAt = performance.now() + ARRIVE_FALLBACK_S * 1000 + ARRIVE_GUARD_MS; // birinchi kadrdan keyin AvatarVideo aniqlashtiradi
+      setArriveKey((k) => k + 1);
+    }
     if (!wakePcm) setGreetKey((k) => k + 1); // tugma: avatar salom videosini kutadi (birinchi ovozda ijro etiladi); wake: salom videosi faqat backend salom bergach (onGreeting)
     try {
       handleRef.current = await startLive({
@@ -105,6 +112,7 @@ export default function App() {
         onLevel: (v) => (levelRef.current = v),
         onGreetAudio: () => setGreetStart((k) => k + 1),
         greetDelayS: Math.max(0, GREETING_SPEECH_START_S - 0.05), // video ~50 ms keyin boshlanadi
+        holdUntil: () => gateRef.current.endsAt, // yurib kelish tugaguncha hech qanday ovoz chalinmaydi
         turnRef,
         onUserSpeech: () => idleRef.current.touch(performance.now()),
         onClip: (id) => setAnswer((a) => ({ id, key: (a?.key ?? 0) + 1 })),
@@ -127,6 +135,7 @@ export default function App() {
   function stop() {
     handleRef.current?.stop();
     handleRef.current = null;
+    gateRef.current.endsAt = 0;
     levelRef.current = 0;
     turnRef.current = newTurnInfo();
     setAnswer(null);
@@ -161,7 +170,7 @@ export default function App() {
       </header>
 
       <div className="scene">
-        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} turnRef={turnRef} answer={answer} onAnswerEnd={() => handleRef.current?.clipEnded()} />
+        <AvatarVideo active={active} levelRef={levelRef} greetKey={greetKey} greetStart={greetStart} arriveKey={arriveKey} gate={gateRef} turnRef={turnRef} answer={answer} onAnswerEnd={() => handleRef.current?.clipEnded()} />
         {status && <div className="status">{status}</div>}
         <ControlsPanel />
       </div>
