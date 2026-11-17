@@ -78,7 +78,7 @@ async function scenario({ name, wav, expect }) {
     const transcript = ws.text.filter((x) => x.m.type === "transcript").map((x) => x.m.text).join(" ");
     const ev = await page.evaluate(() => window.__ev);
     const btn = await page.evaluate(() => ({ stop: !!document.querySelector(".talk.stop"), label: document.querySelector(".talk")?.textContent?.trim(), status: document.querySelector(".status")?.textContent || "", hint: document.querySelector(".hint")?.textContent || "" }));
-    const rigOff = await page.evaluate(() => document.querySelector(".avatar-rig")?.classList.contains("off") ?? null);
+    const stageFar = await page.evaluate(() => document.querySelector(".avatar-stage")?.classList.contains("far") ?? null); // kutish ko'rinishi: biroz uzoqroq va xira
     const arriveAt = ev.find((e) => e[0] === "arrive-video")?.[1];
     const confirmAt = ws.text.find((x) => x.m.type === "greeting" || x.m.type === "started")?.t; // backend suhbat boshlanganini tasdiqladi
     const sec = ws.bin / 48000;
@@ -93,7 +93,7 @@ async function scenario({ name, wav, expect }) {
       ok("backend 'greeting' belgisini yubordi", types.includes("greeting"));
       ok("tayyor salom matni va audio (~6 s)", /Assalomu alaykum/.test(transcript) && sec >= 4.5, `${sec.toFixed(1)} s`);
       ok("salom videosi ijro etildi", ev.some((e) => e[0] === "greeting-video"));
-      ok("avatar yurib keldi — salom TASDIQLANGANDAN keyin (oldin emas)", arriveAt !== undefined && confirmAt !== undefined && arriveAt >= confirmAt - 50, `tasdiq→yurib kelish ${arriveAt && confirmAt ? ((arriveAt - confirmAt) / 1000).toFixed(2) : "?"} s`);
+      ok("avatar oldinga yurib keldi — salom TASDIQLANGANDAN keyin (oldin emas)", arriveAt !== undefined && confirmAt !== undefined && arriveAt >= confirmAt - 50, `tasdiq→yurib kelish ${arriveAt && confirmAt ? ((arriveAt - confirmAt) / 1000).toFixed(2) : "?"} s`);
       ok("suhbat ketyapti (Tugatish tugmasi)", btn.stop);
     } else if (expect === "ru_greeting") {
       ok("ws ?wake=1", ws.urls.some((u) => u.url.includes("wake=1")));
@@ -113,12 +113,12 @@ async function scenario({ name, wav, expect }) {
       ok("avatar yurib keldi, javob undan KEYIN", arriveAt !== undefined);
       ok("suhbat ketyapti", btn.stop);
     } else if (expect === "ignored") {
-      // shovqin YOKI salomsiz gap/savol: suhbat boshlanmaydi, avatar umuman chiqmaydi
+      // shovqin YOKI salomsiz gap/savol: suhbat boshlanmaydi, avatar yaqinlashmaydi
       ok("ws ochildi va backend wake_ignored dedi", types.includes("wake_ignored"));
       ok("javob audiosi yo'q", ws.bin === 0);
       ok("'greeting'/'started' belgisi yo'q", !types.includes("greeting") && !types.includes("started"));
       ok("salom videosi yo'q", !ev.some((e) => e[0] === "greeting-video"));
-      ok("avatar chiqmadi (yurib kelish boshlanmadi, ekran qora)", arriveAt === undefined && rigOff === true, `rigOff=${rigOff}`);
+      ok("avatar yaqinlashmadi (yaqinlashish klipi boshlanmadi, avatar kutish ko'rinishida: uzoqroq, xira)", arriveAt === undefined && stageFar === true, `far=${stageFar}`);
       ok("kutish rejimiga qaytdi (Tugatish tugmasi yo'q)", !btn.stop, btn.label);
     } else if (expect === "goodbye") {
       // salom (suhbat boshlanadi) → yo'lovchi XAYRLASHADI → xayrlashuv ovozi → suhbat o'zi tugaydi (kutish rejimi, qora ekran)
@@ -127,7 +127,7 @@ async function scenario({ name, wav, expect }) {
       ok("backend xayrlashuvni yubordi (turn_complete.end = true)", !!endMsg);
       ok("xayrlashuv matni (o'zbekcha)", /Xayr, hurmatli yo'lovchi/.test(transcript), transcript.slice(-70));
       ok("suhbat o'zi tugadi (Tugatish tugmasi yo'q, kutish rejimi)", !btn.stop, `tugma: ${btn.label}`);
-      ok("avatar yana yo'q bo'ldi (qora ekran)", rigOff === true, `rigOff=${rigOff}`);
+      ok("avatar yana kutish ko'rinishiga qaytdi (uzoqroq, xira)", stageFar === true, `far=${stageFar}`);
       ok("kutish holati yozuvi qaytdi", /deng/.test(btn.status), btn.status);
     } else if (expect === "nothing") {
       ok("jimlikda hech qanday ws ochilmadi", ws.urls.length === 0);

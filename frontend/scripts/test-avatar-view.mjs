@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const FRONT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(FRONT, "package.json"));
 const puppeteer = require("puppeteer-core");
-const TARGET = process.env.TARGET || "http://127.0.0.1:5173/";
+const TARGET = process.env.TARGET || "http://127.0.0.1:5173/?arrive=0"; // qatlam joylashuvi oddiy ko'rinishda sinaladi (kutish ko'rinishi test-arrive.mjs da)
 const CHROME = process.env.CHROME || "C:/Program Files/Google/Chrome/Application/chrome.exe";
 const KEY = "bojxona.avatarView.v1";
 const PAN = 0.02, ZSTEP = 0.08, ZMIN = 0.4, ZMAX = 2.5;

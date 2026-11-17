@@ -386,8 +386,8 @@ WAKE_LANGS = ("uz", "ru", "en")
 WAKE_CLASSIFY = (
     "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar oldiga kelib BIRINCHI marta gapirdi. Faqat JSON qaytar. "
     "Suhbat FAQAT yo'lovchi SALOMLASHGANDA boshlanadi — salomsiz hech narsa suhbatni boshlamaydi. "
-    "kind: 'greeting' — yo'lovchi FAQAT salomlashdi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
-    "'qalaysiz' kabi qo'shimcha ham bo'lishi mumkin); 'question' — yo'lovchi AVVAL SALOMLASHDI va keyin savol yoki so'rov berdi; "
+    "kind: 'greeting' — yo'lovchi salomlashdi va ANIQ SAVOL yoki SO'ROV bermadi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
+    "'qalaysiz' yoki o'zini tanishtirish kabi qo'shimcha gap ham bo'lishi mumkin); 'question' — yo'lovchi salomlashdi VA ANIQ savol yoki so'rov berdi; "
     "'other' — salomlashish ANIQ eshitilmagan HAMMA narsa: shovqin, yo'tal, musiqa, jimlik, salomsiz savol yoki gap, boshqa odam bilan suhbat, telefon, noaniq yoki uzilgan gap. "
     "Shubha bo'lsa 'other'. lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
 )

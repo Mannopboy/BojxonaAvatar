@@ -14,7 +14,7 @@
 //  - Variantdan variantga: oldingisi tugashiga CHAIN_LEAD_S qolganda keyingisi (ikkinchi bufer, oldindan yuklangan) boshlanadi — ikkalasi uy kadrida.
 //  - Chiqish: gapirishdan kutishga FAQAT og'iz yopiq va bosh kutish o'rnida bo'lgan oraliqlarda (avatarClips.json); salom oxirida uy kadri.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
-import { ARRIVE_FALLBACK_S, ARRIVE_FILE, ARRIVE_START_TIMEOUT_MS, arriveEnabled, type ArriveGate } from "./arrive";
+import { ARRIVE_FALLBACK_S, ARRIVE_FILE, ARRIVE_START_TIMEOUT_MS, arriveEnabled, farStyle, type ArriveGate } from "./arrive";
 import { FRAME_H, FRAME_W, SPEAKING_VARIANTS, assetUrl, isExitTime, isHoldTime, pickLinked, pickTransition, pickVariant, planExit, transitionsFor, PLAN_MAX_RATE, PLAN_MIN_RATE } from "./avatarClips";
 import { VIDEO_LEAD_S, type TurnInfo } from "./liveAudio";
 import { useAvatarView } from "./useAvatarView";
@@ -120,7 +120,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
   const arriveEl = useRef<HTMLVideoElement>(null);
   const arriveActive = useRef(false); // yurib kelish klipi ijro etilyapti: salom, javob klipi va ovoz uning tugashini kutadi
   const greetDeferred = useRef(false); // salom yurib kelish davomida so'ralgan — klip tugagach boshlanadi
-  const [rigOn, setRigOn] = useState(!arriveOn); // yurib kelish yoqilganda kutish rejimida avatar ko'rinmaydi (qora ekran): aks holda yurib kelish "sakrab" chiqardi
+  const [far, setFar] = useState(arriveOn); // kutish ko'rinishi: avatar biroz uzoqroqda va xira turadi (arrive.ts FAR_LOOK); suhbat boshlanganda yurib kelib yorug'ga chiqadi
   const answerEl = useRef<HTMLVideoElement>(null);
   const answerOn = useRef(false);
   const onAnswerEndRef = useRef(onAnswerEnd);
@@ -300,7 +300,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
   /** Klip ijro etilmadi (fayl yo'q, brauzer to'sdi, vaqtida boshlanmadi): eski tartib — avatar kutishda ko'rinadi, salom kutilganidek boshlanadi. */
   const abortArrive = useCallback(() => {
     if (!arriveActive.current) return;
-    setRigOn(true);
+    setFar(false); // klipsiz: avatar CSS bilan silliq yaqinlashadi va yorishadi
     arriveEl.current?.pause();
     finishArrive();
   }, [finishArrive]);
@@ -687,7 +687,7 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
       gate.current.endsAt = performance.now() + leftMs;
       window.clearTimeout(timers.current.arrive);
       timers.current.arrive = window.setTimeout(finishArrive, leftMs);
-      setRigOn(true);
+      setFar(false); // klip ustida; ostidagi avatar (kutish) oddiy ko'rinishga o'tadi — klip tugaguncha bajariladi (CSS 700 ms)
       setView((s) => ({ ...s, arrive: true }));
     };
     el.addEventListener("playing", onPlaying, { once: true });
@@ -783,13 +783,13 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
     window.clearTimeout(timers.current.exit);
     window.clearTimeout(timers.current.arrive);
     exitSince.current = null;
-    // yurib kelish bekor: klip to'xtaydi, to'siq ochiladi, kutish rejimida avatar yana ko'rinmaydi (yurib kelish yoqilgan bo'lsa)
+    // suhbat tugadi / yurib kelish bekor: klip to'xtaydi, to'siq ochiladi, avatar yana kutish ko'rinishiga (biroz uzoqroq va xira) qaytadi (yurib kelish yoqilgan bo'lsa)
     arriveActive.current = false;
     greetDeferred.current = false;
     gate.current.endsAt = 0;
     arriveEl.current?.pause();
     setView((s) => (s.arrive ? { ...s, arrive: false } : s));
-    setRigOn(!arriveOn);
+    setFar(arriveOn);
     if (answerOn.current) {
       answerOn.current = false;
       greetRef.current = false;
@@ -811,7 +811,9 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
 
   return (
     <div ref={containerRef} className="avatar-video" role="img" aria-label="Bojxona virtual xodimi">
-      <div ref={rigRef} className={`avatar-rig${rigOn ? "" : " off"}`}>
+      <div ref={rigRef} className="avatar-rig">
+        {/* Kutish ko'rinishi (far): hamma jonli qatlam birga biroz kichikroq va xira turadi — arrive.ts FAR_LOOK; suhbat boshlanganda klip (pastda) ustidan yurib keladi */}
+        <div className={`avatar-stage${far ? " far" : ""}`} style={far ? farStyle() : undefined}>
         {LAYERS.map((name) => (
           <video
             key={name}
@@ -849,7 +851,8 @@ export function AvatarVideo({ active, levelRef, greetKey, greetStart, arriveKey,
           }}
         />
         <video ref={answerEl} className={`rig-answer${view.answer ? " on" : ""}`} playsInline preload="auto" disablePictureInPicture tabIndex={-1} onEnded={endAnswer} onError={endAnswer} />
-        {/* Yurib kelish: hamma qatlam USTIDA (opak qora fon ostidagi kutish avatarini yashiradi); tugagach xiralashib salom/kutishga o'tadi. Yurib kelish o'chiq bo'lsa DOMda yo'q. */}
+        </div>
+        {/* Yurib kelish (approach.mp4): hamma qatlam USTIDA (klipning qora foni ostidagi kutish avatarini yashiradi); tugagach xiralashib salom/kutishga o'tadi. O'chiq bo'lsa DOMda yo'q. */}
         {arriveOn && (
           <video
             ref={arriveEl}
