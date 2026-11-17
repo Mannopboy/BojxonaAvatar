@@ -389,7 +389,10 @@ WAKE_CLASSIFY = (
     "kind: 'greeting' — yo'lovchi salomlashdi va ANIQ SAVOL yoki SO'ROV bermadi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
     "'qalaysiz' yoki o'zini tanishtirish kabi qo'shimcha gap ham bo'lishi mumkin); 'question' — yo'lovchi salomlashdi VA ANIQ savol yoki so'rov berdi; "
     "'other' — salomlashish ANIQ eshitilmagan HAMMA narsa: shovqin, yo'tal, musiqa, jimlik, salomsiz savol yoki gap, boshqa odam bilan suhbat, telefon, noaniq yoki uzilgan gap. "
-    "Shubha bo'lsa 'other'. lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
+    "Shubha bo'lsa 'other'. "
+    "greeted: true — yo'lovchi gapida SALOMLASHISH so'zi ANIQ eshitildi ('Assalomu alaykum', 'Salom', 'Hayrli kun/tong/kech', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi' va shunga o'xshash); "
+    "false — salomlashish so'zi yo'q (oddiy savol, so'rov, gap, shovqin: masalan 'Aeroportdan qancha pul olib kirsa bo'ladi?' — salomsiz, demak false). "
+    "lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
 )
 # Suhbat o'rtasidagi har bir ovozli savol: tushunarlimi? (shubha bo'lsa 'question' — keraksiz qayta so'ramaslik uchun)
 TURN_CLASSIFY = (
@@ -407,10 +410,14 @@ GREETING_OTHER = {
 }
 
 
-def parse_wake(j: object, kinds: tuple[str, ...] = WAKE_KINDS) -> tuple[str, str]:
-    """LLM JSON javobini (kind, lang) ga keltiradi. Noma'lum/buzuq qiymat xavfsiz tomonga: kind aniq bo'lmasa — 'other' (e'tiborsiz), til — 'uz'."""
+def parse_wake(j: object, kinds: tuple[str, ...] = WAKE_KINDS, require_greeted: bool = False) -> tuple[str, str]:
+    """LLM JSON javobini (kind, lang) ga keltiradi. Noma'lum/buzuq qiymat xavfsiz tomonga: kind aniq bo'lmasa — 'other' (e'tiborsiz), til — 'uz'.
+    require_greeted (birinchi gap, kutish rejimi): LLM `greeted: true` (salomlashish so'zi aniq eshitildi) demagan bo'lsa — kind nima bo'lishidan qat'i nazar 'other'.
+    Bu — LLM kayfiyatiga bog'liq bo'lmagan to'siq: «suhbat FAQAT salomlashganda boshlanadi»."""
     d = j if isinstance(j, dict) else {}
     kind = d.get("kind") if d.get("kind") in kinds else "other"
+    if require_greeted and d.get("greeted") is not True:
+        kind = "other"
     lang = d.get("lang") if d.get("lang") in WAKE_LANGS else "uz"
     return kind, lang
 
@@ -419,18 +426,18 @@ async def _llm_classify(user_part: types.Part, system: str = WAKE_CLASSIFY, kind
     """Gap: (kind, lang). Kichik prompt va 2 maydonli javob — tez (~2 s). kinds: birinchi gap uchun WAKE_KINDS, suhbat o'rtasi uchun TURN_KINDS."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=system, temperature=0.0, max_output_tokens=60, response_mime_type="application/json")
-    kwargs["response_schema"] = {
-        "type": "OBJECT",
-        "properties": {"kind": {"type": "STRING", "enum": list(kinds)}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
-        "required": ["kind", "lang"],
-    }
+    wake = kinds is WAKE_KINDS  # birinchi gap (kutish rejimi): salomlashish so'zi eshitilganini alohida mantiqiy maydon bilan tasdiqlaydi (parse_wake require_greeted)
+    props: dict = {"kind": {"type": "STRING", "enum": list(kinds)}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}}
+    if wake:
+        props["greeted"] = {"type": "BOOLEAN"}
+    kwargs["response_schema"] = {"type": "OBJECT", "properties": props, "required": ["kind", "lang"] + (["greeted"] if wake else [])}
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
     r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[user_part])], config=types.GenerateContentConfig(**kwargs))
     try:
-        return parse_wake(json.loads(r.text or "{}"), kinds)
+        return parse_wake(json.loads(r.text or "{}"), kinds, require_greeted=wake)
     except ValueError:
-        return parse_wake({}, kinds)
+        return parse_wake({}, kinds, require_greeted=wake)
 
 
 def _finish_timing(state: dict, t_end: float) -> dict:

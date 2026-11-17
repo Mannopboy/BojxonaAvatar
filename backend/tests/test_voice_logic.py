@@ -39,6 +39,24 @@ class ParseTurn(unittest.TestCase):
         self.assertEqual(T.parse_wake({"kind": "goodbye", "lang": "uz"}), ("other", "uz"))
         self.assertEqual(T.parse_wake({"kind": "greeting", "lang": "uz"}, T.TURN_KINDS), ("other", "uz"))
 
+    def test_wake_requires_greeting_word(self):
+        # kutish rejimi: LLM `greeted: true` demagan bo'lsa — kind nima bo'lishidan qat'i nazar suhbat boshlanmaydi (salomsiz savol ham)
+        for kind in ("greeting", "question"):
+            self.assertEqual(T.parse_wake({"kind": kind, "lang": "uz", "greeted": True}, require_greeted=True), (kind, "uz"))
+            self.assertEqual(T.parse_wake({"kind": kind, "lang": "uz", "greeted": False}, require_greeted=True), ("other", "uz"))
+            self.assertEqual(T.parse_wake({"kind": kind, "lang": "uz"}, require_greeted=True), ("other", "uz"))  # maydon yo'q
+            self.assertEqual(T.parse_wake({"kind": kind, "lang": "uz", "greeted": "true"}, require_greeted=True), ("other", "uz"))  # mantiqiy emas
+        # suhbat o'rtasida (TURN_KINDS) greeted talab qilinmaydi
+        self.assertEqual(T.parse_wake({"kind": "goodbye", "lang": "ru"}, T.TURN_KINDS), ("goodbye", "ru"))
+
+    def test_wake_schema_has_greeted_only_for_first_utterance(self):
+        import inspect
+        src = inspect.getsource(T._llm_classify)
+        self.assertIn('"greeted"', src)
+        self.assertIn("require_greeted=wake", src)
+        self.assertIn("greeted:", T.WAKE_CLASSIFY)
+        self.assertNotIn("greeted", T.TURN_CLASSIFY)
+
     def test_farewell_texts_cover_all_languages(self):
         self.assertEqual(set(T.FAREWELL), set(T.WAKE_LANGS))
         for lang, text in T.FAREWELL.items():
