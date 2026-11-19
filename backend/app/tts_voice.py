@@ -73,7 +73,7 @@ SEARCH_FILLER = {
     "ru": "Сейчас уточню.",
     "en": "Let me check that for you.",
 }
-SEARCH_FILLER_DELAY_S = 4.0  # qidiruv shundan tez tugasa to'ldiruvchi aytilmaydi
+SEARCH_FILLER_DELAY_S = 0  # 0 — to'ldiruvchi gap («Hozir aniqlashtirib beraman») UMUMAN aytilmaydi (foydalanuvchi talabi); >0 — qidiruv shuncha soniyadan uzoq cho'zilsagina aytiladi
 # Qidiruvda ishonchli javob topilmasa — to'qimasdan halol aytiladi (oldindan ovozlangan)
 NOT_FOUND = {
     "uz": "Kechirasiz, aniq ma'lumot topa olmadim. Bojxona xodimiga murojaat qiling.",
@@ -558,7 +558,7 @@ async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str
     try:
         try:
             # to'ldiruvchi gap («Hozir aniqlashtirib beraman») FAQAT qidiruv SEARCH_FILLER_DELAY_S dan uzoq cho'zilsa aytiladi — tez javobda hech narsa qo'shilmaydi
-            text = await asyncio.wait_for(asyncio.shield(search), SEARCH_FILLER_DELAY_S)
+            text = await asyncio.wait_for(asyncio.shield(search), SEARCH_FILLER_DELAY_S or None)
         except asyncio.TimeoutError:
             if on_slow is not None:
                 await on_slow(lang)

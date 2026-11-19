@@ -38,5 +38,47 @@
   "video": false,
   "when": "yo'lovchi avatar qanday yordam bera olishini, nima qila olishini yoki nimalar haqida ma'lumot berishini so'rasa (masalan «qanday yordam bera olasiz?», «nima qila olasiz?», «nimalarga javob bera olasiz?»)",
   "text": "Men bojxona qoidalari bo'yicha savollarga javob beraman: bojsiz limitlar, valyuta, pochta, avtomobil va hujjatlar haqida. Savolingizni bering."
+ },
+ {
+  "id": "corridors",
+  "video": false,
+  "when": "yashil va qizil yo'lak (koridor) nima, qaysi birini tanlash kerakligi so'ralsa",
+  "text": "Yashil yo'lak yozma deklaratsiya qilinishi shart bo'lmagan tovarlar uchun, qizil yo'lak esa yozma deklaratsiya shart bo'lgan tovarlar uchun mo'ljallangan. Tovarlar qiymati bojsiz me'yordan oshsa yoki cheklangan tovar olib o'tsangiz, qizil yo'lakni tanlab, yo'lovchi bojxona deklaratsiyasini to'ldiring."
+ },
+ {
+  "id": "declaration_when",
+  "video": false,
+  "when": "yo'lovchi bojxona deklaratsiyasi qachon to'ldirilishi shart ekani so'ralsa",
+  "text": "Yo'lovchi bojxona deklaratsiyasi olib kirilayotgan tovarlarning umumiy qiymati bojsiz me'yordan oshganda to'ldiriladi. Bojsiz me'yor aeroport orqali bir ming, temir yo'l va daryo orqali besh yuz, avtomobil yoki piyoda o'tish orqali uch yuz AQSh dollari. Naqd valyuta yuz million so'm ekvivalentidan oshsa ham deklaratsiya kerak."
+ },
+ {
+  "id": "stay_rule",
+  "video": false,
+  "when": "chet elda necha kun bo'lgan bo'lsa bojsiz me'yor qo'llanishi (qisqa safar, ikki kundan kam) so'ralsa",
+  "text": "Chet elda temir yo'l, daryo yoki avtomobil orqali borgan bo'lsangiz ikki kalendar kundan, havo transportida esa uch kalendar kundan kam bo'lgan bo'lsangiz, bojsiz me'yor qo'llanmaydi. Bunda tovarlar qiymatidan yagona bojxona to'lovi undiriladi."
+ },
+ {
+  "id": "prohibited",
+  "video": false,
+  "when": "O'zbekistonga olib kirish TAQIQLANGAN tovarlar so'ralsa",
+  "text": "Giyohvandlik vositalari, psixotrop moddalar, portlovchi moddalar, pirotexnika mahsulotlari, lazerli nur tarqatgichlar va uchuvchisiz uchish apparatlarini olib kirish taqiqlangan. Shuningdek, davlat tuzumini buzishga, urush, terrorizm va nafratni targ'ib qiluvchi hamda pornografik materiallar ham taqiqlanadi."
+ },
+ {
+  "id": "personal_items",
+  "video": false,
+  "when": "telefon, noutbuk kabi shaxsiy buyumlarni olib kirishda boj to'lanishi so'ralsa",
+  "text": "Telefon, noutbuk kabi shaxsiy ehtiyoj uchun buyumlar umumiy qiymati bojsiz me'yordan oshmasa, boj to'lanmaydi. Me'yor aeroport orqali bir ming, temir yo'l va daryo orqali besh yuz, avtomobil yoki piyoda o'tish orqali uch yuz AQSh dollari. Oshgan qismiga bojxona to'lovi undiriladi."
+ },
+ {
+  "id": "car_duty",
+  "video": false,
+  "when": "chet eldan avtomobil olib kirishda bojxona to'lovlari qancha yoki nimaga bog'liqligi so'ralsa",
+  "text": "Avtomobil uchun bojxona to'lovlari uning turi, dvigatel hajmi, qiymati va ishlab chiqarilgan yiliga bog'liq. Aniq summani customs.uz saytidan yoki bojxona xodimidan bilib oling."
+ },
+ {
+  "id": "hotline",
+  "video": false,
+  "when": "bojxona qo'mitasining ishonch telefoni, aloqa markazi raqami yoki qayerga murojaat qilish so'ralsa",
+  "text": "Bojxona qo'mitasining ishonch telefoni, o'n bir, nol sakkiz. U haftaning barcha kunlari, sutkasiga yigirma to'rt soat ishlaydi."
  }
 ]
