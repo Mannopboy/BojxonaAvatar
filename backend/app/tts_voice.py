@@ -403,13 +403,19 @@ def _clip_instruction() -> str:
     )
 
 
-_LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz"}
+_LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz", "zh": "xitoy", "kk": "qozoq", "ky": "qirg'iz", "ko": "koreys", "fr": "fransuz",
+               "tg": "tojik", "ar": "arab", "tr": "turk", "tk": "turkman", "az": "ozarbayjon", "xx": "yo'lovchi o'zi gapirgan"}
+LANG_EN = {"uz": "Uzbek", "ru": "Russian", "en": "English", "zh": "Chinese", "kk": "Kazakh", "ky": "Kyrgyz", "ko": "Korean", "fr": "French",
+           "tg": "Tajik", "ar": "Arabic", "tr": "Turkish", "tk": "Turkmen", "az": "Azerbaijani", "xx": "the passenger's own language"}
+LANG_HINT = "'uz' (o'zbek), 'ru' (rus), 'en' (ingliz), 'zh' (xitoy), 'kk' (qozoq), 'ky' (qirg'iz), 'ko' (koreys), 'fr' (fransuz), 'tg' (tojik), 'ar' (arab), 'tr' (turk), 'tk' (turkman), 'az' (ozarbayjon) yoki 'xx' (boshqa til)"
 
 
 def _lang_directive(lang: str) -> str:
     """Model yo'lovchi tilini o'zi aniqlay olmay, o'zbekcha prompt tufayli o'zbekcha javob berib yuborardi — til aniq aytiladi (lang: _route/_classify aniqlagan til)."""
     name = _LANG_NAMES.get(lang, _LANG_NAMES["uz"])
-    return f"\n\nJAVOB TILI (juda muhim): yo'lovchi {name} tilida gapirdi — javobni FAQAT {name} tilida yoz."
+    if lang == "xx":
+        return "\n\nJAVOB TILI (juda muhim): yo'lovchi qaysi tilda gapirgan bo'lsa, javobni FAQAT SHU tilda yoz."
+    return f"\n\nJAVOB TILI (juda muhim): yo'lovchi {name} tilida gapirdi — javobni FAQAT {name} tilida yoz. Shu tilning O'Z YOZUVIDA yoz (qozoq, qirg'iz, tojik — kirill; xitoy — иероглиф; arab — arab yozuvi; koreys — hangul), lotinga translit QILMA."
 
 
 CHAT = "chat"  # _route natijasi: bojxona ma'lumoti emas, oddiy suhbat / avatarning o'zi haqida — internetdan qidirilmaydi, to'g'ridan-to'g'ri javob (_chat_answer)
@@ -434,7 +440,7 @@ CHAT_SYSTEM_FOREIGN = (
     "and look things up on the internet if needed. End by inviting them to ask their question. "
     "Plain spoken sentences only: no markdown, lists, emoji or special symbols. Reply ONLY in {language}."
 )
-_FOREIGN_NAMES = {"ru": "Russian", "en": "English"}
+_FOREIGN_NAMES = {k: v for k, v in LANG_EN.items() if k != "uz"}
 
 
 def _route_instruction() -> str:
@@ -445,7 +451,8 @@ def _route_instruction() -> str:
         "'chat' — savol bojxona ma'lumoti HAQIDA EMAS: avatarning o'zi haqida (sen kimsan, ismingiz nima, nima qila olasiz, qanday yordam bera olasiz), "
         "oddiy gap (rahmat, yaxshi, tushunmadim, qaytaring, qalaysiz) — bunda internetdan qidirish KERAK EMAS. "
         "TAYYOR JAVOBLAR faqat O'ZBEK tilidagi savollar uchun (rus yoki ingliz tilidagi savolda tayyor id TANLAMA: o'zi haqidagi savol bo'lsa 'chat', aks holda 'none'). "
-        "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: yo'lovchi tili — 'uz', 'ru' yoki 'en'.\n" + lines
+        "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: yo'lovchi tili — " + LANG_HINT + ". "
+        "Qozoq (ә ғ қ ң ө ұ ү һ) va qirg'iz (ө ү ң) kirill tillarini, tojik (ӣ ӯ қ ҳ) va o'zbek tilini aralashtirma. Yo'lovchi O'zbek, rus, ingliz, xitoy, qozoq, qirg'iz, koreys, fransuz, tojik, arab, turk, turkman, ozarbayjon yoki boshqa tilda gapirishi mumkin.\n" + lines
     )
 
 
@@ -469,7 +476,7 @@ async def _route(contents: list) -> tuple[str | None, str, str]:
     lang = j.get("lang") if j.get("lang") in WAKE_LANGS else "uz"
     if clip and clip != CHAT and lang != "uz":
         # tayyor javoblar faqat o'zbekcha: rus/ingliz yo'lovchiga o'zbekcha javob aytilmasin — «nima qila olasiz» savoli yo'lovchi tilida suhbat javobi, qolganlari qidiruv/faktlar orqali
-        clip = CHAT if clip == "capabilities" else None
+        clip = CHAT if clip in ("capabilities", "thanks") else None
     q = str(j.get("q") or "").strip()[:300]
     return clip, lang, q
 
@@ -509,7 +516,7 @@ def _strip_greeting(text: str) -> str:
 def _shorten(text: str, max_sentences: int = 2, max_chars: int = 170, hard_cap: int = 260) -> str:
     """Ovozli javob tez aytilishi uchun: ko'pi bilan `max_sentences` gap va `max_chars` belgi (qo'shimcha gaplar gap chegarasida tashlanadi). Birinchi gap HAR DOIM butun qoladi (ma'no buzilmasin),
     faqat u `hard_cap` dan uzun bo'lsa — oxirgi vergul/nuqtali vergul chegarasida (yo'q bo'lsa so'z chegarasida) kesiladi."""
-    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    parts = [x for x in re.split(r"(?<=[.!?؟])\s+|(?<=[。！？])", text.strip()) if x]
     out: list[str] = []
     for part in parts:
         if not part:
@@ -520,7 +527,7 @@ def _shorten(text: str, max_sentences: int = 2, max_chars: int = 170, hard_cap: 
     res = " ".join(out) if out else text.strip()
     if len(res) > hard_cap:  # bitta gapning o'zi juda uzun
         cut = res[:hard_cap]
-        k = max(cut.rfind(","), cut.rfind(";"), cut.rfind(":"))
+        k = max(cut.rfind(","), cut.rfind(";"), cut.rfind(":"), cut.rfind("，"), cut.rfind("；"), cut.rfind("、"), cut.rfind("،"))
         if k >= hard_cap // 2:
             res = cut[:k].rstrip(",;:-— ") + "."  # to'liq bo'lak (gap bo'lagi) bilan tugaydi
         else:
@@ -548,7 +555,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     if not official:
         if settings.voice_search_official_only:
             return None
-        return _shorten(text) + " " + VERIFY_HINT.get(lang, VERIFY_HINT["uz"])
+        return _shorten(text) + " " + await _loc(VERIFY_HINT, lang)
     return _shorten(text)
 
 
@@ -573,7 +580,7 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
             log.info("kb: mos savol yo'q (%.2f) q=%s", hits[0][0] if hits else 0, q[:60])
             return None
         top = hits[0][0]
-        if top >= KB_DIRECT_SCORE and hits[0][1].get('s'):
+        if lang == 'uz' and top >= KB_DIRECT_SCORE and hits[0][1].get('s'):
             log.info('kb: tayyor javob %.2f q=%s', top, q[:60])
             return hits[0][1]['s']
         ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.10)[:6000]
@@ -628,7 +635,7 @@ async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str
     except Exception as e:  # noqa: BLE001
         log.warning("qidiruv xatosi: %s: %s", type(e).__name__, str(e)[:160])
         text = None
-    return None, text or NOT_FOUND.get(lang, NOT_FOUND["uz"])
+    return None, text or await _loc(NOT_FOUND, lang)
 
 
 async def _chat_answer(contents: list, lang: str = "uz") -> str:
@@ -679,33 +686,62 @@ async def _llm_answer_plain(contents: list) -> tuple[str | None, str]:
 
 WAKE_KINDS = ("greeting", "question", "other")
 TURN_KINDS = ("question", "goodbye", "other")  # suhbat o'rtasidagi gap: savol / xayrlashish (suhbat tugaydi) / e'tiborsiz
-WAKE_LANGS = ("uz", "ru", "en")
+WAKE_LANGS = ("uz", "ru", "en", "zh", "kk", "ky", "ko", "fr", "tg", "ar", "tr", "tk", "az", "xx")
 # Birinchi gapni tez tasniflash uchun KICHIK prompt (to'liq TTS_SYSTEM + faktlar bilan chaqiruv 4-9 s, bu — ~2 s; o'lchangan)
 WAKE_CLASSIFY = (
     "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar oldiga kelib BIRINCHI marta gapirdi. Faqat JSON qaytar. "
     "Suhbat FAQAT yo'lovchi SALOMLASHGANDA boshlanadi — salomsiz hech narsa suhbatni boshlamaydi. "
-    "kind: 'greeting' — yo'lovchi salomlashdi va ANIQ SAVOL yoki SO'ROV bermadi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi'; "
+    "kind: 'greeting' — yo'lovchi salomlashdi va ANIQ SAVOL yoki SO'ROV bermadi (masalan 'Assalomu alaykum', 'Salom', 'Hayrli kun', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi', '你好', 'Салем', 'Сәлем', 'Merhaba', 'Bonjour', '안녕하세요', 'السلام عليكم', 'Salam', 'Салом'; "
     "'qalaysiz' yoki o'zini tanishtirish kabi qo'shimcha gap ham bo'lishi mumkin); 'question' — yo'lovchi salomlashdi VA ANIQ savol yoki so'rov berdi; "
     "'other' — salomlashish ANIQ eshitilmagan HAMMA narsa: shovqin, yo'tal, musiqa, jimlik, salomsiz savol yoki gap, boshqa odam bilan suhbat, telefon, noaniq yoki uzilgan gap. "
     "Shubha bo'lsa 'other'. "
-    "greeted: true — yo'lovchi gapida SALOMLASHISH so'zi ANIQ eshitildi ('Assalomu alaykum', 'Salom', 'Hayrli kun/tong/kech', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi' va shunga o'xshash); "
+    "greeted: true — yo'lovchi gapida SALOMLASHISH so'zi ANIQ eshitildi ('Assalomu alaykum', 'Salom', 'Hayrli kun/tong/kech', 'Здравствуйте', 'Привет', 'Добрый день', 'Hello', 'Hi', '你好', 'Сәлем', 'Merhaba', 'Bonjour', '안녕하세요', 'السلام عليكم', 'Salam', 'Салом' va boshqa tillardagi salom shunga o'xshash); "
     "false — salomlashish so'zi yo'q (oddiy savol, so'rov, gap, shovqin: masalan 'Aeroportdan qancha pul olib kirsa bo'ladi?' — salomsiz, demak false). "
-    "lang: yo'lovchi tili — 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
+    "lang: yo'lovchi tili — " + LANG_HINT + "."
 )
 # Suhbat o'rtasidagi har bir ovozli savol: tushunarlimi? (shubha bo'lsa 'question' — keraksiz qayta so'ramaslik uchun)
 TURN_CLASSIFY = (
     "Sen bojxona kioskidagi virtual xodimning eshitish moduli san. Yo'lovchi avatar bilan suhbat davomida gapirdi. Faqat JSON qaytar. "
     "kind: 'question' — yo'lovchi kioskka qaratib gapirdi: savol, so'rov, aniqlashtirish, javobga munosabat (rahmat, tushunmadim, yana ayting) yoki salom; "
     "'goodbye' — yo'lovchi XAYRLASHDI va suhbatni tugatmoqda (masalan 'Xayr', 'Ko'rishguncha', 'Sog' bo'ling', 'Rahmat, xayr', 'Yaxshi qoling', 'До свидания', 'Пока', 'Всего доброго', "
-    "'Спасибо, до свидания', 'Goodbye', 'Bye');faqat xayrlashuv so'zi XAYRLASHISH ma'nosida bo'lsa (o'zbekcha 'hayr' = 'yo'q' ma'nosida yoki gap davomida bo'lsa — 'question'); "
+    "'Спасибо, до свидания', 'Goodbye', 'Bye', '再见', 'Au revoir', 'Güle güle', '안녕히 가세요', 'مع السلامة', 'Сау бол', 'Ҳайр', 'Hoş geldiniz' emas);faqat xayrlashuv so'zi XAYRLASHISH ma'nosida bo'lsa (o'zbekcha 'hayr' = 'yo'q' ma'nosida yoki gap davomida bo'lsa — 'question'); "
     "xayrlashib turib yana savol bersa — 'question'; faqat 'rahmat' (xayrlashmasdan) — 'question'; "
     "'other' — gapirish emas (shovqin, yo'tal, musiqa, jimlik) yoki mazmuni UMUMAN tushunarsiz/uzilgan yoki kioskka aloqasi yo'q (telefonda yoki boshqa odam bilan gaplashyapti). "
-    "Shubha bo'lsa 'question'. lang: 'uz' (o'zbek), 'ru' (rus) yoki 'en' (ingliz)."
+    "Shubha bo'lsa 'question'. lang: " + LANG_HINT + "."
 )
 GREETING_OTHER = {
     "ru": "Здравствуйте! Я виртуальный сотрудник Государственного таможенного комитета. Чем могу вам помочь?",
     "en": "Hello! I am the virtual officer of the State Customs Committee. How can I help you?",
 }
+
+
+_loc_cache: dict[tuple[str, str], str] = {}
+
+
+async def _loc(table: dict, lang: str) -> str:
+    """Qat'iy matn (salom, xayrlashuv, 'topa olmadim', ...) yo'lovchi tilida. Jadvalda (uz/ru/en) bor bo'lsa — o'sha; aks holda inglizcha matn LLM bilan tarjima qilinadi va xotirada saqlanadi."""
+    if lang in table:
+        return table[lang]
+    base = table.get("en") or table["uz"]
+    if lang == "xx" or lang not in LANG_EN:
+        return base
+    key = (base, lang)
+    if key in _loc_cache:
+        return _loc_cache[key]
+    text = base
+    try:
+        model = settings.gemini_chat_model or settings.gemini_text_model
+        kw: dict = dict(temperature=0.0, max_output_tokens=200)
+        if "2.5" in model:
+            kw["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        r = await _gc().aio.models.generate_content(model=model, contents="Translate into " + LANG_EN[lang] + ". Output ONLY the translation, plain spoken text, no quotes:\n" + base, config=types.GenerateContentConfig(**kw))
+        text = clean_for_speech(r.text or "") or base
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("tarjima xatosi: %s: %s", type(e).__name__, str(e)[:120])
+    _loc_cache[key] = text
+    return text
 
 
 def parse_wake(j: object, kinds: tuple[str, ...] = WAKE_KINDS, require_greeted: bool = False) -> tuple[str, str]:
@@ -863,7 +899,7 @@ async def _farewell(ws: WebSocket, lang: str, state: dict) -> None:
     """Xayrlashuv: yo'lovchi tilida oldindan ovozlangan qisqa matn; turn_complete {"end": true} — brauzer/ilova ovoz tugagach suhbatni o'zi tugatadi."""
     state["t_first"] = time.monotonic()
     state["delivering"] = True
-    await _say_cached(ws, FAREWELL.get(lang, FAREWELL["uz"]))
+    await _say_cached(ws, await _loc(FAREWELL, lang))
     state["voice"] = "cache"
     state["end"] = True
 
@@ -1004,7 +1040,7 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
                 greet_text = settings.greeting_text + " " + HELP_PROMPT_UZ
             else:
                 await ws.send_text(json.dumps({"type": "started"}))  # suhbat boshlandi (salom tasdiqlandi, tayyor salom videosi yo'q): avatar yurib keladi
-                greet_text = GREETING_OTHER[lang]
+                greet_text = await _loc(GREETING_OTHER, lang)
                 await _deliver(ws, None, greet_text, types.Part(text="(yo'lovchi salomlashdi)"), history, state)
                 return True  # tarix _deliver ichida yangilandi
             history.append(types.Content(role="user", parts=[types.Part(text="(yo'lovchi salomlashdi)")]))
