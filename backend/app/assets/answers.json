@@ -1,24 +1,24 @@
 [
  {
   "id": "airport",
-  "when": "xalqaro aeroport (samolyot) orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "when": "xalqaro aeroport (samolyot) orqali bojsiz tovar olib kirish limiti so'ralsa — tovarlarning UMUMIY QIYMATI (dollar) bo'yicha limit; telefon/qurilma SONI, aniq bir buyum yoki boshqa mavzu so'ralsa bu EMAS ('none')",
   "text": "Xalqaro aeroport orqali bir ming AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
  },
  {
   "id": "rail",
-  "when": "temir yo'l (poyezd) orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "when": "temir yo'l (poyezd) orqali bojsiz tovar olib kirish limiti so'ralsa — tovarlarning UMUMIY QIYMATI (dollar) bo'yicha limit; telefon/qurilma SONI, aniq bir buyum yoki boshqa mavzu so'ralsa bu EMAS ('none')",
   "text": "Temir yo'l o'tkazish punktlari orqali besh yuz AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
  },
  {
   "id": "limits",
   "video": false,
-  "when": "bojsiz tovar olib kirish limitlari UMUMAN so'ralsa (aeroport, temir yo'l, avtomobil — aniq yo'l aytilmagan)",
+  "when": "bojsiz tovar olib kirish limitlari UMUMAN so'ralsa (aeroport, temir yo'l, avtomobil — aniq yo'l aytilmagan) — tovarlarning UMUMIY QIYMATI (dollar) bo'yicha limit; telefon/qurilma SONI, aniq bir buyum yoki boshqa mavzu so'ralsa bu EMAS ('none')",
   "text": "Xalqaro aeroport orqali bir ming AQSh dollarigacha, temir yo'l va daryo o'tkazish punktlari orqali besh yuz dollargacha, avtomobil yoki piyoda o'tish punktlari orqali uch yuz dollargacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
  },
  {
   "id": "car",
   "video": false,
-  "when": "avtomobil (mashina) yoki piyoda o'tish orqali bojsiz tovar olib kirish limiti so'ralsa",
+  "when": "avtomobil (mashina) yoki piyoda o'tish orqali bojsiz tovar olib kirish limiti so'ralsa — tovarlarning UMUMIY QIYMATI (dollar) bo'yicha limit; telefon/qurilma SONI, aniq bir buyum yoki boshqa mavzu so'ralsa bu EMAS ('none')",
   "text": "Avtomobil yoki piyoda o'tish punktlari orqali uch yuz AQSh dollarigacha bo'lgan tovarlarni bojsiz olib kirishingiz mumkin."
  },
  {

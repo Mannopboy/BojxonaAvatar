@@ -94,7 +94,7 @@ _FACTS = TTS_SYSTEM.split("TASDIQLANGAN FAKTLAR:\n", 1)[1]
 SEARCH_SYSTEM = (
     "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchilar bilan JONLI OVOZLI suhbat qilasan: sening javobing ovoz chiqarib o'qiladi.\n"
     "TASDIQLANGAN FAKTLAR (RASMIY va o'zgarmas; bojsiz limit, pochta/kuryer va valyuta raqamlarini FAQAT shulardan ol — qidiruvda boshqa raqam uchrasa ham AYTMA):\n" + _FACTS + "\n"
-    "ISH TARTIBI: yo'lovchi savoliga javob berish uchun INTERNETDAN QIDIR (Google Search). Qidiruv so'rovlariga 'customs.uz' va 'lex.uz' ni qo'sh va birinchi navbatda rasmiy manbalarga — customs.uz, lex.uz, gov.uz, my.gov.uz — tayan; rasmiy manbada topilmasa, boshqa sahifadagi ma'lumotni FAQAT aniq yozilgan bo'lsagina ayt "
+    "ISH TARTIBI: yo'lovchi savoliga javob berish uchun INTERNETDAN QIDIR (Google Search). Savol HAR DOIM O'ZBEKISTON Respublikasi bojxona qoidalari haqida — yo'lovchi qaysi tilda so'rasa ham boshqa davlat (Turkiya, Rossiya, Xitoy...) qoidalarini AYTMA. Qidiruv so'rovlariga 'customs.uz' va 'lex.uz' ni qo'sh va birinchi navbatda rasmiy manbalarga — customs.uz, lex.uz, gov.uz, my.gov.uz — tayan; rasmiy manbada topilmasa, boshqa sahifadagi ma'lumotni FAQAT aniq yozilgan bo'lsagina ayt "
     "(forum, izoh va blog yozuvlariga ISHONMA; manbalar bir-biriga zid bo'lsa aytma). O'z xotirangdan aniq raqam, summa, foiz, muddat, sana, tarif, telefon yoki qonun moddasini O'YLAB TOPMA va taxmin qilma. "
     "Manba nomini aytma (customs.uz va h.k. deb) — faqat javobning o'zini ayt. Rasmiy manbadan aniq javob topa olmasang yoki manbalar bir-biriga zid bo'lsa — faqat NOT_FOUND so'zini yoz (boshqa hech narsa).\n"
     "QISQALIK (juda muhim — javob tez aytilishi kerak): javob ko'pi bilan IKKI qisqa gap, jami 150 belgigacha. Faqat savolning o'ziga javob ber (ha/yo'q va eng asosiy shart yoki raqam); "
@@ -120,6 +120,18 @@ def _load_answers() -> list[dict]:
 
 ANSWERS = _load_answers()
 ANSWER_BY_ID = {a["id"]: a for a in ANSWERS}
+
+
+def _load_answers_i18n() -> dict:
+    """Tayyor javoblarning boshqa tillardagi tarjimalari: {id: {til: matn}} (scripts/build_kb_i18n.py). Matn o'zbekcha javob o'zgarsa qayta quriladi."""
+    try:
+        return json.load(open(os.path.join(ASSETS, "answers_i18n.json"), encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+ANSWERS_I18N = _load_answers_i18n()
+ANSWER_I18N_TEXTS = frozenset(t for m in ANSWERS_I18N.values() for t in m.values())
 # Video klipi bor tayyor javoblar (brauzer /avatar/answers/<id>.mp4 ni oldindan yuklaydi); "video": false — faqat oldindan ovozlangan audio (diskda, TTS kvotasi sarflanmaydi)
 READY_CLIPS = [a["id"] for a in ANSWERS if a.get("video", True)]
 
@@ -407,7 +419,7 @@ _LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz", "zh": "xitoy", "kk":
                "tg": "tojik", "ar": "arab", "tr": "turk", "tk": "turkman", "az": "ozarbayjon", "xx": "yo'lovchi o'zi gapirgan"}
 LANG_EN = {"uz": "Uzbek", "ru": "Russian", "en": "English", "zh": "Chinese", "kk": "Kazakh", "ky": "Kyrgyz", "ko": "Korean", "fr": "French",
            "tg": "Tajik", "ar": "Arabic", "tr": "Turkish", "tk": "Turkmen", "az": "Azerbaijani", "xx": "the passenger's own language"}
-LANG_HINT = "'uz' (o'zbek), 'ru' (rus), 'en' (ingliz), 'zh' (xitoy), 'kk' (qozoq), 'ky' (qirg'iz), 'ko' (koreys), 'fr' (fransuz), 'tg' (tojik), 'ar' (arab), 'tr' (turk), 'tk' (turkman), 'az' (ozarbayjon) yoki 'xx' (boshqa til)"
+LANG_HINT = "'uz' (o'zbek), 'ru' (rus), 'en' (ingliz), 'zh' (xitoy), 'kk' (qozoq), 'ky' (qirg'iz), 'ko' (koreys), 'fr' (fransuz), 'tg' (tojik), 'ar' (arab), 'tr' (turk), 'tk' (turkman), 'az' (ozarbayjon) yoki 'xx' (boshqa til). Farqlash: qozoq va qirg'iz tillari KIRILL yozuvida; turkman (ý ň ä ž ö ü; 'bilerin', 'bolýar', 'näçe'), ozarbayjon (ə ı ğ; 'bilər', 'olar', 'neçə') va turk (ı ğ ş; 'miyim', 'olabilir', 'kaç') tillari LOTIN yozuvida — ularni qirg'iz yoki o'zbek bilan aralashtirma"
 
 
 def _lang_directive(lang: str) -> str:
@@ -447,10 +459,10 @@ def _route_instruction() -> str:
     lines = "\n".join(f"- {a['id']}: {a['when']}" for a in ANSWERS)
     return (
         "Sen bojxona kioskidagi virtual xodimning tushunish moduli san. Yo'lovchi savoliga qarab FAQAT JSON qaytar. "
-        "clip: agar savol (o'zbek tilida) quyidagi TAYYOR JAVOBLARdan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — uning id si. "
+        "clip: agar savol (QAYSI TILDA bo'lishidan qat'i nazar) quyidagi TAYYOR JAVOBLARdan BIRIGA aniq mos kelsa va shu javob savolga to'liq yetarli bo'lsa — uning id si. "
         "'chat' — savol bojxona ma'lumoti HAQIDA EMAS: avatarning o'zi haqida (sen kimsan, ismingiz nima, nima qila olasiz, qanday yordam bera olasiz), "
         "oddiy gap (rahmat, yaxshi, tushunmadim, qaytaring, qalaysiz) — bunda internetdan qidirish KERAK EMAS. "
-        "TAYYOR JAVOBLAR faqat O'ZBEK tilidagi savollar uchun (rus yoki ingliz tilidagi savolda tayyor id TANLAMA: o'zi haqidagi savol bo'lsa 'chat', aks holda 'none'). "
+        "q: yo'lovchi savolining O'ZBEKCHA (lotin yozuvida) matni — savol o'zbekcha bo'lsa eshitganingni so'zma-so'z yoz, boshqa tilda bo'lsa o'zbek tiliga ANIQ tarjima qil; qisqartirma, ma'nosini o'zgartirma. "
         "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: yo'lovchi tili — " + LANG_HINT + ". "
         "Qozoq (ә ғ қ ң ө ұ ү һ) va qirg'iz (ө ү ң) kirill tillarini, tojik (ӣ ӯ қ ҳ) va o'zbek tilini aralashtirma. Yo'lovchi O'zbek, rus, ingliz, xitoy, qozoq, qirg'iz, koreys, fransuz, tojik, arab, turk, turkman, ozarbayjon yoki boshqa tilda gapirishi mumkin.\n" + lines
     )
@@ -474,8 +486,8 @@ async def _route(contents: list) -> tuple[str | None, str, str]:
         j = {}
     clip = j.get("clip") if (j.get("clip") in ANSWER_BY_ID or j.get("clip") == CHAT) else None
     lang = j.get("lang") if j.get("lang") in WAKE_LANGS else "uz"
-    if clip and clip != CHAT and lang != "uz":
-        # tayyor javoblar faqat o'zbekcha: rus/ingliz yo'lovchiga o'zbekcha javob aytilmasin — «nima qila olasiz» savoli yo'lovchi tilida suhbat javobi, qolganlari qidiruv/faktlar orqali
+    if clip and clip != CHAT and lang != "uz" and not ANSWERS_I18N.get(clip, {}).get(lang):
+        # tayyor javobning shu tildagi tarjimasi yo'q: o'zbekcha javob aytilmasin — «nima qila olasiz»/«rahmat» yo'lovchi tilida suhbat javobi, qolganlari bilim bazasi/qidiruv orqali
         clip = CHAT if clip in ("capabilities", "thanks") else None
     q = str(j.get("q") or "").strip()[:300]
     return clip, lang, q
@@ -570,7 +582,7 @@ KB_SYSTEM = (
 )
 
 
-async def _kb_answer(q: str, lang: str = "uz") -> str | None:
+async def _kb_answer(q: str, lang: str = "uz", orig: types.Content | None = None) -> str | None:
     """Bilim bazasidan (1000+ rasmiy savol-javob) tez javob: embedding qidiruv (~0.5 s) + qisqa LLM javobi (~1 s), internetsiz. None — bazada mos javob yo'q (qidiruvga o'tiladi)."""
     if not q or not kb.available():
         return None
@@ -580,15 +592,20 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
             log.info("kb: mos savol yo'q (%.2f) q=%s", hits[0][0] if hits else 0, q[:60])
             return None
         top = hits[0][0]
-        if lang == 'uz' and top >= KB_DIRECT_SCORE and hits[0][1].get('s'):
-            log.info('kb: tayyor javob %.2f q=%s', top, q[:60])
-            return hits[0][1]['s']
+        ready = kb.spoken(hits[0][1], lang) if top >= KB_DIRECT_SCORE else ""
+        if ready:  # tayyor ovozli javob yo'lovchi tilida (oldindan tarjima qilingan) — LLM chaqirilmaydi
+            log.info('kb: tayyor javob %.2f [%s] q=%s', top, lang, q[:60])
+            return ready
         ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.10)[:6000]
+        # boshqa tildagi savol: asl savol (matn/ovoz) ham beriladi — o'zbekcha tarjima (q) noaniq bo'lsa ham model asl ma'noga javob beradi
+        ask = types.Content(role="user", parts=[types.Part(text=q)])
+        if lang != "uz" and orig is not None:
+            ask = types.Content(role="user", parts=list(orig.parts) + [types.Part(text="(Savolning o'zbekcha tarjimasi: " + q + ". Bu O'zbekiston bojxonasi haqida.)")])
         model = settings.gemini_chat_model or settings.gemini_text_model
         kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nTASDIQLANGAN FAKTLAR (bazaga zid kelsa shular ustun; naqd valyuta yuz million so'm ekvivalentidan oshsa deklaratsiya MAJBURIY — dollarni so'mga hisoblab tekshir, bir dollar taxminan o'n ikki ming so'm):\n" + _FACTS + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
         if "2.5" in model:
             kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-        r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[types.Part(text=q)])], config=types.GenerateContentConfig(**kwargs))
+        r = await _gc().aio.models.generate_content(model=model, contents=[ask], config=types.GenerateContentConfig(**kwargs))
         raw = (r.text or "").strip()
         text = clean_for_speech(raw)
         log.info("kb: %.2f q=%s | %s", top, q[:60], text[:80])
@@ -613,11 +630,13 @@ async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str
     clip, lang, q = await _route(contents)
     if clip == CHAT:  # avatarning o'zi haqida / oddiy gap: qidirilmaydi, to'ldiruvchi («aniqlashtirib beraman») ham aytilmaydi
         return None, await _chat_answer(contents, lang)
+    if clip and lang != "uz":  # tayyor javobning yo'lovchi tilidagi tarjimasi (video/audio o'zbekcha — shuning uchun clip=None, matn ovozlanadi va keshlanadi)
+        return None, ANSWERS_I18N[clip][lang]
     if clip:
         return clip, ANSWER_BY_ID[clip]["text"]
     if on_search is not None and not await on_search(lang):
         return None, ""
-    kb_text = await _kb_answer(q, lang)  # 1) rasmiy bilim bazasi (tez, internetsiz)
+    kb_text = await _kb_answer(q, lang, contents[-1] if contents else None)  # 1) rasmiy bilim bazasi (tez, internetsiz)
     if kb_text:
         return None, kb_text
     search = asyncio.create_task(_search_answer(contents, lang))
@@ -826,7 +845,7 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
             history.append(types.Content(role="model", parts=[types.Part(text=text)]))
             state["spoke"] = True
             return
-    if text in FIXED_TEXTS or text in kb.spoken_texts():
+    if text in FIXED_TEXTS or text in ANSWER_I18N_TEXTS or text in kb.spoken_texts():
         # qat'iy matn (qidiruvda ishonchli javob topilmadi): oldindan ovozlangan audio diskdan — darhol chiqadi, TTS kvotasi sarflanmaydi
         pcm = await cached_audio(text) if text in FIXED_TEXTS else _read_cached(text)
         if pcm:
@@ -860,7 +879,7 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
             mark()
             state["spoke"] = True
             state["voice"] = info.get("voice")
-        if full and info.get("voice") == "tts" and text in kb.spoken_texts():
+        if full and info.get("voice") == "tts" and (text in ANSWER_I18N_TEXTS or text in kb.spoken_texts()):
             _store_cached(text, bytes(full))  # bilim bazasi javobi: keyingi safar audio diskdan darhol chiqadi
     if not state["spoke"] and not tts_available():
         await ws.send_text(json.dumps({"type": "error", "msg": "Ovoz xizmati vaqtincha band. Suhbatni qaytadan boshlang."}))

@@ -26,6 +26,8 @@ def _load() -> None:
         _vecs.frombytes(open(os.path.join(ASSETS, "kb_emb.bin"), "rb").read())
         if len(_vecs) != len(_rows) * DIM:
             raise ValueError("kb_emb.bin hajmi kb.json ga mos emas")
+        for i, r in enumerate(_rows):
+            r["_i"] = i
     except Exception as e:  # noqa: BLE001
         log.warning("bilim bazasi yuklanmadi: %s", e)
         _rows, _vecs = [], None
@@ -36,12 +38,41 @@ def available() -> bool:
     return bool(_rows)
 
 
+_i18n: dict[str, list[str]] = {}  # til -> kb.json qatorlari tartibida oldindan tarjima qilingan ovozli javoblar (scripts/build_kb_i18n.py)
+
+
+def _load_i18n(lang: str) -> list[str]:
+    if lang not in _i18n:
+        try:
+            arr = json.load(open(os.path.join(ASSETS, "kb_i18n", lang + ".json"), encoding="utf-8"))
+            _i18n[lang] = arr if isinstance(arr, list) and len(arr) == len(_rows) else []
+        except Exception:  # noqa: BLE001
+            _i18n[lang] = []
+    return _i18n[lang]
+
+
+def spoken(row: dict, lang: str = "uz") -> str:
+    """Qatorning tayyor ovozli javobi yo'lovchi tilida ("" — yo'q: LLM javob beradi)."""
+    _load()
+    if lang == "uz":
+        return row.get("s") or ""
+    arr = _load_i18n(lang)
+    i = row.get("_i", -1)
+    return arr[i] if 0 <= i < len(arr) else ""
+
+
 def spoken_texts() -> set:
-    """Tayyor ovozli javob matnlari ("s") — audio diskda keshlanadi (birinchi so'rovdan keyin darhol)."""
+    """Tayyor ovozli javob matnlari (hamma tilda) — audio diskda keshlanadi (birinchi so'rovdan keyin darhol)."""
     _load()
     global _spoken
     if _spoken is None:
         _spoken = {r['s'] for r in _rows if r.get('s')}
+        try:
+            for f in os.listdir(os.path.join(ASSETS, "kb_i18n")):
+                if f.endswith(".json"):
+                    _spoken.update(x for x in _load_i18n(f[:-5]) if x)
+        except OSError:
+            pass
     return _spoken
 
 
@@ -59,6 +90,8 @@ async def search(client, text: str, k: int = 4) -> list[tuple[float, dict]]:
     q = [x / n for x in q]
     scores = []
     for i in range(len(_rows)):
+        if _rows[i].get("x"):  # manbada javobi savolga mos kelmaydigan qator — ishlatilmaydi
+            continue
         base = i * DIM
         scores.append((sum(a * b for a, b in zip(q, _vecs[base:base + DIM])), i))
     scores.sort(reverse=True)
