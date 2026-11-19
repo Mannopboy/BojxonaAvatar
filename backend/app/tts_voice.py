@@ -73,6 +73,7 @@ SEARCH_FILLER = {
     "ru": "Сейчас уточню.",
     "en": "Let me check that for you.",
 }
+SEARCH_FILLER_DELAY_S = 4.0  # qidiruv shundan tez tugasa to'ldiruvchi aytilmaydi
 # Qidiruvda ishonchli javob topilmasa — to'qimasdan halol aytiladi (oldindan ovozlangan)
 NOT_FOUND = {
     "uz": "Kechirasiz, aniq ma'lumot topa olmadim. Bojxona xodimiga murojaat qiling.",
@@ -538,7 +539,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     return _shorten(text)
 
 
-async def _llm_answer(contents: list, on_search=None) -> tuple[str | None, str]:
+async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str | None, str]:
     """Savolga javob: (tayyor javob id si yoki None, matn).
     1) kichik yo'naltirish (_route): savol tayyor javobga mos bo'lsa — o'sha (tez, TTS siz);
     2) aks holda INTERNETDAN qidirib javob topiladi (_search_answer; to'qimaydi) — topilmasa NOT_FOUND matni yo'lovchi tilida.
@@ -553,9 +554,17 @@ async def _llm_answer(contents: list, on_search=None) -> tuple[str | None, str]:
         return clip, ANSWER_BY_ID[clip]["text"]
     if on_search is not None and not await on_search(lang):
         return None, ""
+    search = asyncio.create_task(_search_answer(contents, lang))
     try:
-        text = await _search_answer(contents, lang)
+        try:
+            # to'ldiruvchi gap («Hozir aniqlashtirib beraman») FAQAT qidiruv SEARCH_FILLER_DELAY_S dan uzoq cho'zilsa aytiladi — tez javobda hech narsa qo'shilmaydi
+            text = await asyncio.wait_for(asyncio.shield(search), SEARCH_FILLER_DELAY_S)
+        except asyncio.TimeoutError:
+            if on_slow is not None:
+                await on_slow(lang)
+            text = await search
     except asyncio.CancelledError:
+        search.cancel()
         raise
     except Exception as e:  # noqa: BLE001
         log.warning("qidiruv xatosi: %s: %s", type(e).__name__, str(e)[:160])
@@ -812,10 +821,12 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list, state: di
                 if res[0] != "question":
                     return False  # pastdagi mantiq xayrlashuv yoki qayta so'rashni beradi
                 lang = res[1]
-        await _say_filler(ws, lang, state)
         return True
 
-    ans = asyncio.create_task(_timed(_llm_answer(contents, on_search)))
+    async def on_slow(lang: str) -> None:
+        await _say_filler(ws, lang, state)
+
+    ans = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow)))
     cls = asyncio.create_task(_timed(_llm_classify(user_part, TURN_CLASSIFY, TURN_KINDS))) if user_part.inline_data is not None else None
     try:
         if cls is not None:
@@ -892,14 +903,16 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
             return False
         if kind != "question":
             return False
+        return True
+
+    async def on_slow(lang: str) -> None:
         try:
             await asyncio.wait_for(started.wait(), 3.0)
         except asyncio.TimeoutError:
             pass
         await _say_filler(ws, lang, state)
-        return True
 
-    answer = asyncio.create_task(_timed(_llm_answer(contents, on_search)))
+    answer = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow)))
     try:
         try:
             (kind, lang), cms = await cls
