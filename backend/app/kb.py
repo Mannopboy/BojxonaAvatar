@@ -13,6 +13,7 @@ EMB_MODEL, DIM = "gemini-embedding-001", 256
 
 _rows: list[dict] = []
 _vecs: array.array | None = None
+_spoken: set | None = None
 
 
 def _load() -> None:
@@ -33,6 +34,15 @@ def _load() -> None:
 def available() -> bool:
     _load()
     return bool(_rows)
+
+
+def spoken_texts() -> set:
+    """Tayyor ovozli javob matnlari ("s") — audio diskda keshlanadi (birinchi so'rovdan keyin darhol)."""
+    _load()
+    global _spoken
+    if _spoken is None:
+        _spoken = {r['s'] for r in _rows if r.get('s')}
+    return _spoken
 
 
 async def search(client, text: str, k: int = 4) -> list[tuple[float, dict]]:

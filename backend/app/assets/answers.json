@@ -74,5 +74,11 @@
   "video": false,
   "when": "bojxona qo'mitasining ishonch telefoni, aloqa markazi raqami yoki qayerga murojaat qilish so'ralsa",
   "text": "Bojxona qo'mitasining ishonch telefoni, o'n bir, nol sakkiz. U haftaning barcha kunlari, sutkasiga yigirma to'rt soat ishlaydi."
+ },
+ {
+  "id": "thanks",
+  "video": false,
+  "when": "yo'lovchi FAQAT minnatdorchilik bildirsa (rahmat, katta rahmat, tashakkur, raxmat, yaxshi rahmat) — xayrlashmasdan va yangi savolsiz",
+  "text": "Arzimaydi! Yana savollaringiz bo'lsa, marhamat."
  }
 ]

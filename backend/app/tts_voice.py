@@ -298,6 +298,16 @@ def _cache_name(text: str) -> str:
     return hashlib.sha1(text.strip().encode("utf-8")).hexdigest()[:16] + ".pcm"
 
 
+def _store_cached(text: str, pcm: bytes) -> None:
+    try:
+        os.makedirs(settings.audio_cache_dir, exist_ok=True)
+        with open(os.path.join(settings.audio_cache_dir, _cache_name(text)), 'wb') as f:
+            f.write(pcm)
+        _cache[text] = pcm
+    except OSError as e:
+        log.warning('audio kesh yozilmadi: %s', e)
+
+
 def _read_cached(text: str) -> bytes:
     for d in (AUDIO_CACHE_DIR, settings.audio_cache_dir):
         try:
@@ -542,6 +552,7 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     return _shorten(text)
 
 
+KB_DIRECT_SCORE = 0.86  # shu va undan yuqori o'xshashlikda bazadagi TAYYOR ovozli javob ("s") to'g'ridan-to'g'ri aytiladi — LLM chaqirilmaydi (tez)
 KB_MIN_SCORE = 0.80  # eng yaqin savol shu o'xshashlikdan past bo'lsa — bilim bazasi ishlatilmaydi (internetdan qidiriladi)
 KB_SYSTEM = (
     "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchi bilan JONLI OVOZLI suhbat: javobing ovoz chiqarib o'qiladi.\n"
@@ -562,6 +573,9 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
             log.info("kb: mos savol yo'q (%.2f) q=%s", hits[0][0] if hits else 0, q[:60])
             return None
         top = hits[0][0]
+        if top >= KB_DIRECT_SCORE and hits[0][1].get('s'):
+            log.info('kb: tayyor javob %.2f q=%s', top, q[:60])
+            return hits[0][1]['s']
         ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.06)
         model = settings.gemini_chat_model or settings.gemini_text_model
         kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
@@ -776,9 +790,9 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
             history.append(types.Content(role="model", parts=[types.Part(text=text)]))
             state["spoke"] = True
             return
-    if text in FIXED_TEXTS:
+    if text in FIXED_TEXTS or text in kb.spoken_texts():
         # qat'iy matn (qidiruvda ishonchli javob topilmadi): oldindan ovozlangan audio diskdan — darhol chiqadi, TTS kvotasi sarflanmaydi
-        pcm = await cached_audio(text)
+        pcm = await cached_audio(text) if text in FIXED_TEXTS else _read_cached(text)
         if pcm:
             await ws.send_text(json.dumps({"type": "transcript", "text": text}))
             await _send_pcm(ws, pcm)
@@ -791,9 +805,11 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
     if text:
         await ws.send_text(json.dumps({"type": "transcript", "text": text}))
         piece = bytearray()
+        full = bytearray()
         limit = FIRST_PIECE_BYTES
         info: dict = {}
         async for ch in synth_stream(text, info):
+            full.extend(ch)
             piece.extend(ch)
             if len(piece) >= limit:
                 n = len(piece) // 2 * 2
@@ -808,6 +824,8 @@ async def _deliver(ws: WebSocket, clip: str | None, text: str, user_part: types.
             mark()
             state["spoke"] = True
             state["voice"] = info.get("voice")
+        if full and info.get("voice") == "tts" and text in kb.spoken_texts():
+            _store_cached(text, bytes(full))  # bilim bazasi javobi: keyingi safar audio diskdan darhol chiqadi
     if not state["spoke"] and not tts_available():
         await ws.send_text(json.dumps({"type": "error", "msg": "Ovoz xizmati vaqtincha band. Suhbatni qaytadan boshlang."}))
     elif not state["spoke"]:
