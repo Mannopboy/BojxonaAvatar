@@ -553,12 +553,12 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
 
 
 KB_DIRECT_SCORE = 0.86  # shu va undan yuqori o'xshashlikda bazadagi TAYYOR ovozli javob ("s") to'g'ridan-to'g'ri aytiladi — LLM chaqirilmaydi (tez)
-KB_MIN_SCORE = 0.80  # eng yaqin savol shu o'xshashlikdan past bo'lsa — bilim bazasi ishlatilmaydi (internetdan qidiriladi)
+KB_MIN_SCORE = 0.66  # eng yaqin savol shu o'xshashlikdan past bo'lsa — bilim bazasi ishlatilmaydi (internetdan qidiriladi)
 KB_SYSTEM = (
     "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchi bilan JONLI OVOZLI suhbat: javobing ovoz chiqarib o'qiladi.\n"
     "Quyida RASMIY BILIM BAZASIdan yo'lovchi savoliga eng yaqin savol-javoblar (kirill yozuvida bo'lishi mumkin). Javobni FAQAT shu ma'lumotga tayanib ber; o'zingdan raqam, summa, muddat, qonun to'qima. "
-    "Bazada savolga javob YO'Q bo'lsa — faqat NOT_FOUND so'zini yoz.\n"
-    "USLUB: rasmiy, xushmuomala, 'Siz' deb murojaat qil; salomlashma. Javob 2-3 ta qisqa gap — savolning asosiy mohiyatini ayt; qaror raqami, sanasi, modda raqamini aytma. "
+    "Savol murakkab yoki bir necha qismdan iborat bo'lsa, har bir qismga bazadagi mos ma'lumotdan javob ber — bazada bor narsani ayt, bo'lmaganini aytma. Savol mavzusiga UMUMAN aloqador ma'lumot bazada YO'Q bo'lsagina — faqat NOT_FOUND so'zini yoz. «Savolingizni tushunmadim» yoki «xodimga murojaat qiling» DEMA. Bazada aniq yozilmagan narsani (masalan, biror buyumni deklaratsiya qilish shartligini) TAXMIN qilma — faqat bazada bor qismga javob ber.\n"
+    "USLUB: rasmiy, xushmuomala, 'Siz' deb murojaat qil; salomlashma. Javob 2-4 ta qisqa gap — savolning asosiy mohiyatini ayt; qaror raqami, sanasi, modda raqamini aytma. "
     "YOZUV: markdown, ro'yxat, qavs, emoji ISHLATMA; barcha raqam va summalarni SO'Z bilan yoz ('bir ming dollar'); '$' o'rniga 'dollar', '%' o'rniga 'foiz'. O'zbekcha javobni LOTIN yozuvida yoz."
 )
 
@@ -568,7 +568,7 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
     if not q or not kb.available():
         return None
     try:
-        hits = await kb.search(_gc(), q, 4)
+        hits = await kb.search(_gc(), q, 5)
         if not hits or hits[0][0] < KB_MIN_SCORE:
             log.info("kb: mos savol yo'q (%.2f) q=%s", hits[0][0] if hits else 0, q[:60])
             return None
@@ -576,9 +576,9 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
         if top >= KB_DIRECT_SCORE and hits[0][1].get('s'):
             log.info('kb: tayyor javob %.2f q=%s', top, q[:60])
             return hits[0][1]['s']
-        ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.06)
+        ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.10)[:6000]
         model = settings.gemini_chat_model or settings.gemini_text_model
-        kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
+        kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nTASDIQLANGAN FAKTLAR (bazaga zid kelsa shular ustun; naqd valyuta yuz million so'm ekvivalentidan oshsa deklaratsiya MAJBURIY — dollarni so'mga hisoblab tekshir, bir dollar taxminan o'n ikki ming so'm):\n" + _FACTS + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
         if "2.5" in model:
             kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
         r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[types.Part(text=q)])], config=types.GenerateContentConfig(**kwargs))
@@ -587,7 +587,7 @@ async def _kb_answer(q: str, lang: str = "uz") -> str | None:
         log.info("kb: %.2f q=%s | %s", top, q[:60], text[:80])
         if not text or "NOT_FOUND" in raw.upper().replace(" ", "_"):
             return None
-        return _shorten(_strip_greeting(text), 3, 320, 460)
+        return _shorten(_strip_greeting(text), 4, 420, 560)
     except asyncio.CancelledError:
         raise
     except Exception as e:  # noqa: BLE001
