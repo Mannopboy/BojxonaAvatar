@@ -22,7 +22,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 
+from . import kb
 from .config import get_settings
+from .translit import to_latin
 
 settings = get_settings()
 log = logging.getLogger("uvicorn.error")
@@ -437,14 +439,14 @@ def _route_instruction() -> str:
     )
 
 
-async def _route(contents: list) -> tuple[str | None, str]:
+async def _route(contents: list) -> tuple[str | None, str, str]:
     """Kichik tez chaqiruv (~1 s): savol tayyor javobga mosmi (clip id), oddiy suhbatmi (CHAT) va yo'lovchi tili. Bojxona savoli bo'lib, tayyor javob yo'q bo'lsa (None, til)."""
     model = settings.gemini_chat_model or settings.gemini_text_model
-    kwargs: dict = dict(system_instruction=_route_instruction(), temperature=0.0, max_output_tokens=40, response_mime_type="application/json")
+    kwargs: dict = dict(system_instruction=_route_instruction(), temperature=0.0, max_output_tokens=120, response_mime_type="application/json")
     kwargs["response_schema"] = {
         "type": "OBJECT",
-        "properties": {"clip": {"type": "STRING", "enum": ["none", CHAT] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}},
-        "required": ["clip", "lang"],
+        "properties": {"clip": {"type": "STRING", "enum": ["none", CHAT] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}, "q": {"type": "STRING"}},
+        "required": ["clip", "lang", "q"],
     }
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
@@ -458,7 +460,8 @@ async def _route(contents: list) -> tuple[str | None, str]:
     if clip and clip != CHAT and lang != "uz":
         # tayyor javoblar faqat o'zbekcha: rus/ingliz yo'lovchiga o'zbekcha javob aytilmasin — «nima qila olasiz» savoli yo'lovchi tilida suhbat javobi, qolganlari qidiruv/faktlar orqali
         clip = CHAT if clip == "capabilities" else None
-    return clip, lang
+    q = str(j.get("q") or "").strip()[:300]
+    return clip, lang, q
 
 
 def _grounding_domains(resp) -> list[str]:
@@ -539,6 +542,45 @@ async def _search_answer(contents: list, lang: str = "uz") -> str | None:
     return _shorten(text)
 
 
+KB_MIN_SCORE = 0.80  # eng yaqin savol shu o'xshashlikdan past bo'lsa — bilim bazasi ishlatilmaydi (internetdan qidiriladi)
+KB_SYSTEM = (
+    "Sen — O'zbekiston Respublikasi Davlat bojxona qo'mitasi virtual xodimisan (ayol). Yo'lovchi bilan JONLI OVOZLI suhbat: javobing ovoz chiqarib o'qiladi.\n"
+    "Quyida RASMIY BILIM BAZASIdan yo'lovchi savoliga eng yaqin savol-javoblar (kirill yozuvida bo'lishi mumkin). Javobni FAQAT shu ma'lumotga tayanib ber; o'zingdan raqam, summa, muddat, qonun to'qima. "
+    "Bazada savolga javob YO'Q bo'lsa — faqat NOT_FOUND so'zini yoz.\n"
+    "USLUB: rasmiy, xushmuomala, 'Siz' deb murojaat qil; salomlashma. Javob 2-3 ta qisqa gap — savolning asosiy mohiyatini ayt; qaror raqami, sanasi, modda raqamini aytma. "
+    "YOZUV: markdown, ro'yxat, qavs, emoji ISHLATMA; barcha raqam va summalarni SO'Z bilan yoz ('bir ming dollar'); '$' o'rniga 'dollar', '%' o'rniga 'foiz'. O'zbekcha javobni LOTIN yozuvida yoz."
+)
+
+
+async def _kb_answer(q: str, lang: str = "uz") -> str | None:
+    """Bilim bazasidan (1000+ rasmiy savol-javob) tez javob: embedding qidiruv (~0.5 s) + qisqa LLM javobi (~1 s), internetsiz. None — bazada mos javob yo'q (qidiruvga o'tiladi)."""
+    if not q or not kb.available():
+        return None
+    try:
+        hits = await kb.search(_gc(), q, 4)
+        if not hits or hits[0][0] < KB_MIN_SCORE:
+            log.info("kb: mos savol yo'q (%.2f) q=%s", hits[0][0] if hits else 0, q[:60])
+            return None
+        top = hits[0][0]
+        ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.06)
+        model = settings.gemini_chat_model or settings.gemini_text_model
+        kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
+        if "2.5" in model:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        r = await _gc().aio.models.generate_content(model=model, contents=[types.Content(role="user", parts=[types.Part(text=q)])], config=types.GenerateContentConfig(**kwargs))
+        raw = (r.text or "").strip()
+        text = clean_for_speech(raw)
+        log.info("kb: %.2f q=%s | %s", top, q[:60], text[:80])
+        if not text or "NOT_FOUND" in raw.upper().replace(" ", "_"):
+            return None
+        return _shorten(_strip_greeting(text), 3, 320, 460)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.warning("kb xatosi: %s: %s", type(e).__name__, str(e)[:160])
+        return None
+
+
 async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str | None, str]:
     """Savolga javob: (tayyor javob id si yoki None, matn).
     1) kichik yo'naltirish (_route): savol tayyor javobga mos bo'lsa — o'sha (tez, TTS siz);
@@ -547,13 +589,16 @@ async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str
     VOICE_WEB_SEARCH=0 yoki grounding o'chiq bo'lsa — eski usul (_llm_answer_plain)."""
     if not (settings.voice_web_search and settings.grounding_enabled):
         return await _llm_answer_plain(contents)
-    clip, lang = await _route(contents)
+    clip, lang, q = await _route(contents)
     if clip == CHAT:  # avatarning o'zi haqida / oddiy gap: qidirilmaydi, to'ldiruvchi («aniqlashtirib beraman») ham aytilmaydi
         return None, await _chat_answer(contents, lang)
     if clip:
         return clip, ANSWER_BY_ID[clip]["text"]
     if on_search is not None and not await on_search(lang):
         return None, ""
+    kb_text = await _kb_answer(q, lang)  # 1) rasmiy bilim bazasi (tez, internetsiz)
+    if kb_text:
+        return None, kb_text
     search = asyncio.create_task(_search_answer(contents, lang))
     try:
         try:
