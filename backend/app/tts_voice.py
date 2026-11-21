@@ -493,11 +493,12 @@ async def _route(contents: list, state: dict | None = None) -> tuple[str | None,
     if state is not None:
         # tanlangan javob tili suhbat davomida saqlanadi: yo'lovchi (masalan o'zbekcha) «xitoy tilida ma'lumot ber» dedi -> keyingi o'zbekcha savollarga ham xitoycha javob,
         # toki u boshqa tilni so'ramaguncha yoki boshqa tilda gapirmaguncha. state["lang_pref"] = (gapirgan til, javob tili)
-        pref = state.get("lang_pref")
+        store = state["sess"] if isinstance(state.get("sess"), dict) else state  # "sess" — butun suhbat (WebSocket sessiyasi) uchun umumiy holat; state esa har javob uchun yangi
+        pref = store.get("lang_pref")
         if lang != spoken:
-            state["lang_pref"] = (spoken, lang)
+            store["lang_pref"] = (spoken, lang)
         elif clip == "lang_yes":  # o'zi gapirayotgan tilni so'radi («o'zbekcha gapiring») — avvalgi tanlov bekor
-            state.pop("lang_pref", None)
+            store.pop("lang_pref", None)
         elif pref and pref[0] == spoken:
             lang = pref[1]
     if clip and clip != CHAT and lang != "uz" and not ANSWERS_I18N.get(clip, {}).get(lang):
@@ -1117,6 +1118,7 @@ async def handle(ws: WebSocket, wake: bool = False) -> None:
     collecting = False
     task: asyncio.Task | None = None
     awaiting_wake = wake  # birinchi gap hali qabul qilinmagan
+    sess: dict = {}  # butun suhbat davomida saqlanadigan holat (masalan tanlangan javob tili: lang_pref)
     cur: dict = {"state": None}  # joriy javobning holati (barge-in: audio ketayotganini bilish uchun)
 
     t_warm = asyncio.create_task(_warm_llm())  # sessiya ochilganda model isitiladi — birinchi savol ham tez bo'lsin
@@ -1125,7 +1127,7 @@ async def handle(ws: WebSocket, wake: bool = False) -> None:
 
     async def run(user_part: types.Part, t_end: float) -> None:
         nonlocal awaiting_wake
-        state: dict = {"spoke": False}
+        state: dict = {"spoke": False, "sess": sess}
         cur["state"] = state
         started = True
         cancelled = False
