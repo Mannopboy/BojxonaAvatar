@@ -194,5 +194,33 @@
   "tr": "Rica ederim! Başka sorularınız olursa, lütfen çekinmeyin.",
   "tk": "Degmez! Ýene-de soraglaryňyz bar bolsa, haýyş edýärin.",
   "az": "Dəyməz! Başqa suallarınız olarsa, buyurun."
+ },
+ "languages": {
+  "ru": "Я говорю на английском, французском, китайском и языках Центральной Азии.",
+  "en": "I can speak English, French, Chinese, and the languages of Central Asia.",
+  "zh": "我会说英语、法语、中文和中亚语言。",
+  "kk": "Мен ағылшын, француз, қытай және Орталық Азия тілдерінде сөйлей аламын.",
+  "ky": "Мен англис, француз, кытай жана Борбордук Азия тилдеринде сүйлөй алам.",
+  "ko": "저는 영어, 프랑스어, 중국어, 중앙아시아 언어를 구사할 수 있습니다.",
+  "fr": "Je parle anglais, français, chinois et les langues d'Asie centrale.",
+  "tg": "Ман бо забонҳои англисӣ, фаронсавӣ, чинӣ ва забонҳои Осиёи Марказӣ ҳарф зада метавонам.",
+  "ar": "أستطيع التحدث باللغات الإنجليزية والفرنسية والصينية ولغات آسيا الوسطى.",
+  "tr": "İngilizce, Fransızca, Çince ve Orta Asya dillerini konuşabiliyorum.",
+  "tk": "Men iňlis, fransuz, hytaý we Merkezi Aziýa dillerinde gürleýärin.",
+  "az": "Mən ingilis, fransız, çin və Mərkəzi Asiya dillərində danışa bilirəm."
+ },
+ "lang_yes": {
+  "ru": "Да, конечно, я говорю по-русски. Пожалуйста, задайте свой вопрос о таможне.",
+  "en": "Yes, of course, I can speak English. Please ask your question about customs.",
+  "zh": "是的，当然，我会说中文。请问您有什么关于海关的问题？",
+  "kk": "Иә, әрине, мен қазақша сөйлеймін. Кеденге қатысты сұрағыңызды қойыңыз.",
+  "ky": "Ооба, албетте, мен кыргызча сүйлөйм. Сураныч, бажыга байланыштуу сурооңузду бериңиз.",
+  "ko": "네, 물론입니다. 저는 한국어를 할 수 있습니다. 세관에 대한 질문이 있으시면 말씀해주세요.",
+  "fr": "Oui, bien sûr, je parle français. Veuillez poser votre question sur les douanes.",
+  "tg": "Бале, албатта, ман бо забони тоҷикӣ ҳарф мезанам. Лутфан, саволи худро оид ба гумрук диҳед.",
+  "ar": "نعم، بالطبع، يمكنني التحدث باللغة العربية. يرجى طرح سؤالك حول الجمارك.",
+  "tr": "Evet, elbette, Türkçe konuşabiliyorum. Lütfen gümrükle ilgili sorunuzu sorun.",
+  "tk": "Hawa, elbetde, men türkmençe gürleýärin. Gümrük baradaky soragyňyzy beriň.",
+  "az": "Bəli, əlbəttə, mən azərbaycanca danışıram. Zəhmət olmasa, gömrüklə bağlı sualınızı verin."
  }
 }

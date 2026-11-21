@@ -419,7 +419,7 @@ _LANG_NAMES = {"uz": "o'zbek", "ru": "rus", "en": "ingliz", "zh": "xitoy", "kk":
                "tg": "tojik", "ar": "arab", "tr": "turk", "tk": "turkman", "az": "ozarbayjon", "xx": "yo'lovchi o'zi gapirgan"}
 LANG_EN = {"uz": "Uzbek", "ru": "Russian", "en": "English", "zh": "Chinese", "kk": "Kazakh", "ky": "Kyrgyz", "ko": "Korean", "fr": "French",
            "tg": "Tajik", "ar": "Arabic", "tr": "Turkish", "tk": "Turkmen", "az": "Azerbaijani", "xx": "the passenger's own language"}
-LANG_HINT = "'uz' (o'zbek), 'ru' (rus), 'en' (ingliz), 'zh' (xitoy), 'kk' (qozoq), 'ky' (qirg'iz), 'ko' (koreys), 'fr' (fransuz), 'tg' (tojik), 'ar' (arab), 'tr' (turk), 'tk' (turkman), 'az' (ozarbayjon) yoki 'xx' (boshqa til). Farqlash: qozoq va qirg'iz tillari KIRILL yozuvida; turkman (ý ň ä ž ö ü; 'bilerin', 'bolýar', 'näçe'), ozarbayjon (ə ı ğ; 'bilər', 'olar', 'neçə') va turk (ı ğ ş; 'miyim', 'olabilir', 'kaç') tillari LOTIN yozuvida — ularni qirg'iz yoki o'zbek bilan aralashtirma"
+LANG_HINT = "'uz' (o'zbek), 'ru' (rus), 'en' (ingliz), 'zh' (xitoy), 'kk' (qozoq), 'ky' (qirg'iz), 'ko' (koreys), 'fr' (fransuz), 'tg' (tojik), 'ar' (arab), 'tr' (turk), 'tk' (turkman), 'az' (ozarbayjon) yoki 'xx' (boshqa til). Farqlash: qozoq va qirg'iz tillari KIRILL yozuvida; turkman (ý ň ä ž ö ü; 'bilerin', 'bolýar', 'näçe', 'bolup biler', 'gümrük', 'kimler', 'haýsy'), ozarbayjon (ə ı ğ; 'bilər', 'olar', 'neçə') va turk (ı ğ ş; 'miyim', 'olabilir', 'kaç') tillari LOTIN yozuvida — ularni qirg'iz yoki o'zbek bilan aralashtirma (LOTIN harfli matn hech qachon 'ky' yoki 'kk' emas)"
 
 
 def _lang_directive(lang: str) -> str:
@@ -463,19 +463,22 @@ def _route_instruction() -> str:
         "'chat' — savol bojxona ma'lumoti HAQIDA EMAS: avatarning o'zi haqida (sen kimsan, ismingiz nima, nima qila olasiz, qanday yordam bera olasiz), "
         "oddiy gap (rahmat, yaxshi, tushunmadim, qaytaring, qalaysiz) — bunda internetdan qidirish KERAK EMAS. "
         "q: yo'lovchi savolining O'ZBEKCHA (lotin yozuvida) matni — savol o'zbekcha bo'lsa eshitganingni so'zma-so'z yoz, boshqa tilda bo'lsa o'zbek tiliga ANIQ tarjima qil; qisqartirma, ma'nosini o'zgartirma. "
-        "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: yo'lovchi tili — " + LANG_HINT + ". "
+        "Bojxona mavzusidagi boshqa har qanday savol (hujjat, to'lov, qoida, tovar, taqiq, tartib), bir nechta savol yoki shovqin — 'none'. lang: JAVOB tili — odatda yo'lovchi gapirgan til: " + LANG_HINT + ". "
+        "LEKIN yo'lovchi BOSHQA tilda javob/ma'lumot so'rasa yoki shu tilda gaplasha olishingni so'rasa (masalan o'zbekcha: «menga bojxona haqida xitoy tilida ma'lumot ber», «xitoycha gaplasha olasanmi?», "
+        "«ruscha gapiring», «can you answer in French?») — lang O'SHA SO'RALGAN til (xitoy -> 'zh', rus -> 'ru' ...); so'ralgan til ro'yxatda bo'lmasa — yo'lovchi gapirgan til va clip 'languages'. "
+        "spoken: yo'lovchi HAQIQATDA gapirgan til (so'ralgan til emas) — xuddi shu kodlardan biri. "
         "Qozoq (ә ғ қ ң ө ұ ү һ) va qirg'iz (ө ү ң) kirill tillarini, tojik (ӣ ӯ қ ҳ) va o'zbek tilini aralashtirma. Yo'lovchi O'zbek, rus, ingliz, xitoy, qozoq, qirg'iz, koreys, fransuz, tojik, arab, turk, turkman, ozarbayjon yoki boshqa tilda gapirishi mumkin.\n" + lines
     )
 
 
-async def _route(contents: list) -> tuple[str | None, str, str]:
+async def _route(contents: list, state: dict | None = None) -> tuple[str | None, str, str]:
     """Kichik tez chaqiruv (~1 s): savol tayyor javobga mosmi (clip id), oddiy suhbatmi (CHAT) va yo'lovchi tili. Bojxona savoli bo'lib, tayyor javob yo'q bo'lsa (None, til)."""
     model = settings.gemini_chat_model or settings.gemini_text_model
     kwargs: dict = dict(system_instruction=_route_instruction(), temperature=0.0, max_output_tokens=120, response_mime_type="application/json")
     kwargs["response_schema"] = {
         "type": "OBJECT",
-        "properties": {"clip": {"type": "STRING", "enum": ["none", CHAT] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}, "q": {"type": "STRING"}},
-        "required": ["clip", "lang", "q"],
+        "properties": {"clip": {"type": "STRING", "enum": ["none", CHAT] + [a["id"] for a in ANSWERS]}, "lang": {"type": "STRING", "enum": list(WAKE_LANGS)}, "spoken": {"type": "STRING", "enum": list(WAKE_LANGS)}, "q": {"type": "STRING"}},
+        "required": ["clip", "lang", "spoken", "q"],
     }
     if "2.5" in model:
         kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
@@ -486,6 +489,17 @@ async def _route(contents: list) -> tuple[str | None, str, str]:
         j = {}
     clip = j.get("clip") if (j.get("clip") in ANSWER_BY_ID or j.get("clip") == CHAT) else None
     lang = j.get("lang") if j.get("lang") in WAKE_LANGS else "uz"
+    spoken = j.get("spoken") if j.get("spoken") in WAKE_LANGS else lang
+    if state is not None:
+        # tanlangan javob tili suhbat davomida saqlanadi: yo'lovchi (masalan o'zbekcha) «xitoy tilida ma'lumot ber» dedi -> keyingi o'zbekcha savollarga ham xitoycha javob,
+        # toki u boshqa tilni so'ramaguncha yoki boshqa tilda gapirmaguncha. state["lang_pref"] = (gapirgan til, javob tili)
+        pref = state.get("lang_pref")
+        if lang != spoken:
+            state["lang_pref"] = (spoken, lang)
+        elif clip == "lang_yes":  # o'zi gapirayotgan tilni so'radi («o'zbekcha gapiring») — avvalgi tanlov bekor
+            state.pop("lang_pref", None)
+        elif pref and pref[0] == spoken:
+            lang = pref[1]
     if clip and clip != CHAT and lang != "uz" and not ANSWERS_I18N.get(clip, {}).get(lang):
         # tayyor javobning shu tildagi tarjimasi yo'q: o'zbekcha javob aytilmasin — «nima qila olasiz»/«rahmat» yo'lovchi tilida suhbat javobi, qolganlari bilim bazasi/qidiruv orqali
         clip = CHAT if clip in ("capabilities", "thanks") else None
@@ -599,8 +613,10 @@ async def _kb_answer(q: str, lang: str = "uz", orig: types.Content | None = None
         ctx = "\n\n".join(f"Savol: {to_latin(r['q'])}\nJavob: {r['a'][:1500]}" for sc, r in hits if sc >= top - 0.10)[:6000]
         # boshqa tildagi savol: asl savol (matn/ovoz) ham beriladi — o'zbekcha tarjima (q) noaniq bo'lsa ham model asl ma'noga javob beradi
         ask = types.Content(role="user", parts=[types.Part(text=q)])
-        if lang != "uz" and orig is not None:
-            ask = types.Content(role="user", parts=list(orig.parts) + [types.Part(text="(Savolning o'zbekcha tarjimasi: " + q + ". Bu O'zbekiston bojxonasi haqida.)")])
+        if lang != "uz":
+            # til ko'rsatmasi savolning OXIRIDA va inglizcha: o'zbekcha baza/prompt modelni o'zbekcha javobga tortib ketardi (o'lchangan)
+            tail = "(Uzbek translation of the question: " + q + ". It is about the customs rules of Uzbekistan.) IMPORTANT: write your answer ONLY in " + LANG_EN.get(lang, "the passenger's language") + ", in its standard native script. Do NOT answer in Uzbek."
+            ask = types.Content(role="user", parts=(list(orig.parts) if orig is not None else []) + [types.Part(text=tail)])
         model = settings.gemini_chat_model or settings.gemini_text_model
         kwargs: dict = dict(system_instruction=KB_SYSTEM + _lang_directive(lang) + "\n\nTASDIQLANGAN FAKTLAR (bazaga zid kelsa shular ustun; naqd valyuta yuz million so'm ekvivalentidan oshsa deklaratsiya MAJBURIY — dollarni so'mga hisoblab tekshir, bir dollar taxminan o'n ikki ming so'm):\n" + _FACTS + "\n\nBILIM BAZASI:\n" + ctx, temperature=0.2, max_output_tokens=300)
         if "2.5" in model:
@@ -619,7 +635,7 @@ async def _kb_answer(q: str, lang: str = "uz", orig: types.Content | None = None
         return None
 
 
-async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str | None, str]:
+async def _llm_answer(contents: list, on_search=None, on_slow=None, state: dict | None = None) -> tuple[str | None, str]:
     """Savolga javob: (tayyor javob id si yoki None, matn).
     1) kichik yo'naltirish (_route): savol tayyor javobga mos bo'lsa — o'sha (tez, TTS siz);
     2) aks holda INTERNETDAN qidirib javob topiladi (_search_answer; to'qimaydi) — topilmasa NOT_FOUND matni yo'lovchi tilida.
@@ -627,7 +643,7 @@ async def _llm_answer(contents: list, on_search=None, on_slow=None) -> tuple[str
     VOICE_WEB_SEARCH=0 yoki grounding o'chiq bo'lsa — eski usul (_llm_answer_plain)."""
     if not (settings.voice_web_search and settings.grounding_enabled):
         return await _llm_answer_plain(contents)
-    clip, lang, q = await _route(contents)
+    clip, lang, q = await _route(contents, state)
     if clip == CHAT:  # avatarning o'zi haqida / oddiy gap: qidirilmaydi, to'ldiruvchi («aniqlashtirib beraman») ham aytilmaydi
         return None, await _chat_answer(contents, lang)
     if clip and lang != "uz":  # tayyor javobning yo'lovchi tilidagi tarjimasi (video/audio o'zbekcha — shuning uchun clip=None, matn ovozlanadi va keshlanadi)
@@ -944,7 +960,7 @@ async def respond(ws: WebSocket, user_part: types.Part, history: list, state: di
     async def on_slow(lang: str) -> None:
         await _say_filler(ws, lang, state)
 
-    ans = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow)))
+    ans = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow, state)))
     cls = asyncio.create_task(_timed(_llm_classify(user_part, TURN_CLASSIFY, TURN_KINDS))) if user_part.inline_data is not None else None
     try:
         if cls is not None:
@@ -1030,7 +1046,7 @@ async def respond_first(ws: WebSocket, user_part: types.Part, history: list, sta
             pass
         await _say_filler(ws, lang, state)
 
-    answer = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow)))
+    answer = asyncio.create_task(_timed(_llm_answer(contents, on_search, on_slow, state)))
     try:
         try:
             (kind, lang), cms = await cls

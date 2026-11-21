@@ -80,5 +80,17 @@
   "video": false,
   "when": "yo'lovchi FAQAT minnatdorchilik bildirsa (rahmat, katta rahmat, tashakkur, raxmat, yaxshi rahmat) — xayrlashmasdan va yangi savolsiz",
   "text": "Arzimaydi! Yana savollaringiz bo'lsa, marhamat."
+ },
+ {
+  "id": "languages",
+  "video": false,
+  "when": "yo'lovchi avatar QAYSI TILLARDA gaplasha olishini UMUMAN so'rasa (masalan «qaysi tillarda gaplashasiz?», «qaysi tilda gaplasha olasiz?», «на каких языках вы говорите?»), yoki ro'yxatda YO'Q tilni so'rasa",
+  "text": "Men ingliz, fransuz, xitoy va Markaziy Osiyo tillarida gaplasha olaman."
+ },
+ {
+  "id": "lang_yes",
+  "video": false,
+  "when": "yo'lovchi ANIQ BIR tilda (ro'yxatdagi) gaplasha olishingni so'rasa yoki shu tilda gaplashishni / bojxona haqida shu tilda ma'lumot berishni so'rasa, lekin ANIQ bojxona savoli bermasa (masalan «xitoycha gaplasha olasanmi?», «ruscha gapirasizmi?», «do you speak English?», «menga bojxona haqida xitoy tilida ma'lumot ber») — bunda lang = so'ralgan til. Aniq bojxona savoli ham bo'lsa — shu savolga mos id yoki 'none' (lang = so'ralgan til)",
+  "text": "Ha, albatta, o'zbek tilida gaplasha olaman. Bojxona bo'yicha savolingizni bering."
  }
 ]
