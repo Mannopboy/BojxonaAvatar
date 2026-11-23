@@ -59,7 +59,8 @@ class ParseTurn(unittest.TestCase):
         self.assertNotIn("greeted", T.TURN_CLASSIFY)
 
     def test_farewell_texts_cover_all_languages(self):
-        self.assertEqual(set(T.FAREWELL), set(T.WAKE_LANGS))
+        self.assertEqual(set(T.FAREWELL), {"uz", "ru", "en"})  # audiosi git'da; qolgan tillar _loc() bilan tarjima qilinib keshlanadi
+        self.assertTrue(set(T.FAREWELL) <= set(T.WAKE_LANGS))
         for lang, text in T.FAREWELL.items():
             self.assertTrue(text.strip(), lang)
             self.assertLess(len(text), 80, lang)  # qisqa: yo'lovchi kutib qolmasin
@@ -89,7 +90,7 @@ class Goodbye(unittest.IsolatedAsyncioTestCase):
                 raise cls_result
             return cls_result
 
-        async def fake_answer(contents, on_search=None):
+        async def fake_answer(contents, on_search=None, on_slow=None, state=None):
             await asyncio.sleep(ans_delay)
             return None, "LLM javobi"
 
@@ -169,7 +170,7 @@ class WakeOnlyGreeting(unittest.IsolatedAsyncioTestCase):
         async def fake_classify(part, system=None, kinds=None):
             return kind_lang
 
-        async def fake_answer(contents, on_search=None):
+        async def fake_answer(contents, on_search=None, on_slow=None, state=None):
             return None, "LLM javobi"
 
         async def fake_cached(text):
@@ -240,8 +241,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_ready_clip_skips_search(self):
         called: list = []
 
-        async def route(c):
-            return "airport", "uz"
+        async def route(c, state=None):
+            return "airport", "uz", ""
 
         async def search(c, lang="uz"):
             called.append(1)
@@ -257,8 +258,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         """«Qanday yordam bera olasiz?» kabi gap: internetdan qidirilmaydi, «aniqlashtirib beraman» deyilmaydi, «xodimga murojaat qiling» ham emas."""
         called: list = []
 
-        async def route(c):
-            return T.CHAT, "ru"
+        async def route(c, state=None):
+            return T.CHAT, "ru", ""
 
         async def search(c, lang="uz"):
             called.append("search")
@@ -290,14 +291,51 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_route_parses_chat_and_ignores_unknown_ids(self):
         for model_clip, expected in (("chat", T.CHAT), ("airport", "airport"), ("capabilities", "capabilities"), ("nomalum", None), ("none", None)):
             with mock.patch.object(T, "_gc", lambda c=model_clip: self._fake_client(json.dumps({"clip": c, "lang": "uz"}), [])):
-                self.assertEqual(await T._route([]), (expected, "uz"), model_clip)
+                self.assertEqual(await T._route([]), (expected, "uz", ""), model_clip)
 
-    async def test_ready_answers_are_not_used_for_russian_or_english_passengers(self):
-        """Tayyor javoblar o'zbekcha: ruscha/inglizcha yo'lovchiga o'zbekcha javob aytilmaydi."""
-        for lang in ("ru", "en"):
-            for model_clip, expected in (("capabilities", T.CHAT), ("chat", T.CHAT), ("airport", None), ("car", None), ("none", None)):
+    async def test_ready_answers_are_translated_for_other_languages(self):
+        """Tayyor javoblar boshqa tillarga oldindan tarjima qilingan: yo'lovchiga O'Z TILIDA aytiladi (o'zbekcha video/audio emas); tarjimasi yo'q tilda — suhbat javobi yoki baza/qidiruv."""
+        for lang in ("ru", "en", "zh"):
+            for model_clip, expected in (("capabilities", "capabilities"), ("chat", T.CHAT), ("airport", "airport"), ("car", "car"), ("none", None)):
                 with mock.patch.object(T, "_gc", lambda c=model_clip, l=lang: self._fake_client(json.dumps({"clip": c, "lang": l}), [])):
-                    self.assertEqual(await T._route([]), (expected, lang), (lang, model_clip))
+                    self.assertEqual(await T._route([]), (expected, lang, ""), (lang, model_clip))
+        for model_clip, expected in (("capabilities", T.CHAT), ("thanks", T.CHAT), ("airport", None)):  # 'xx' (boshqa til): tarjima yo'q
+            with mock.patch.object(T, "_gc", lambda c=model_clip: self._fake_client(json.dumps({"clip": c, "lang": "xx"}), [])):
+                self.assertEqual(await T._route([]), (expected, "xx", ""), model_clip)
+
+        async def route(c, state=None):
+            return "airport", "ru", ""
+
+        with mock.patch.object(T, "_route", route):
+            clip, text = await T._llm_answer([])
+        self.assertIsNone(clip)  # o'zbekcha klip ijro etilmaydi — ruscha matn ovozlanadi
+        self.assertEqual(text, T.ANSWERS_I18N["airport"]["ru"])
+        self.assertIn(text, T.ANSWER_I18N_TEXTS)  # audiosi birinchi aytilgach keshlanadi
+
+    def test_every_ready_answer_has_all_translations(self):
+        langs = set(T.LANG_EN) - {"uz", "xx"}
+        for a in T.ANSWERS:
+            self.assertEqual(set(T.ANSWERS_I18N.get(a["id"], {})), langs, a["id"])
+
+    async def test_requested_answer_language_is_kept_for_the_session(self):
+        """«Menga xitoy tilida ma'lumot ber» (o'zbekcha) -> keyingi o'zbekcha savollarga ham xitoycha javob; «endi o'zbekcha gapiring» -> bekor."""
+        sess: dict = {}
+
+        def client(clip, lang, spoken):
+            return lambda: self._fake_client(json.dumps({"clip": clip, "lang": lang, "spoken": spoken, "q": "savol"}), [])
+
+        with mock.patch.object(T, "_gc", client("lang_yes", "zh", "uz")):
+            self.assertEqual((await T._route([], {"sess": sess}))[:2], ("lang_yes", "zh"))
+        self.assertEqual(sess["lang_pref"], ("uz", "zh"))
+        with mock.patch.object(T, "_gc", client("currency", "uz", "uz")):  # yangi javob holati (state) — sessiya o'sha
+            self.assertEqual((await T._route([], {"sess": sess}))[:2], ("currency", "zh"))
+        with mock.patch.object(T, "_gc", client("none", "ru", "ru")):  # boshqa tilda gapirdi — o'sha tilda javob
+            self.assertEqual((await T._route([], {"sess": sess}))[:2], (None, "ru"))
+        with mock.patch.object(T, "_gc", client("lang_yes", "uz", "uz")):  # «endi o'zbekcha gapiring»
+            self.assertEqual((await T._route([], {"sess": sess}))[:2], ("lang_yes", "uz"))
+        self.assertNotIn("lang_pref", sess)
+        with mock.patch.object(T, "_gc", client("currency", "uz", "uz")):
+            self.assertEqual((await T._route([], {"sess": sess}))[:2], ("currency", "uz"))
 
     def test_route_and_chat_prompts_describe_the_capability_question(self):
         ri = T._route_instruction()
@@ -314,7 +352,9 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         """Ruscha savolga o'zbekcha javob berilib qolmasin (prompt o'zbekcha — model tilni o'zi adashtirardi)."""
         self.assertIn("FAQAT rus tilida", T._lang_directive("ru"))
         self.assertIn("FAQAT ingliz tilida", T._lang_directive("en"))
-        self.assertIn("FAQAT o'zbek tilida", T._lang_directive("xx"))
+        self.assertIn("FAQAT o'zbek tilida", T._lang_directive("zz"))  # noma'lum kod — o'zbekcha
+        self.assertIn("FAQAT SHU tilda", T._lang_directive("xx"))  # ro'yxatda yo'q til — yo'lovchi o'zi gapirgan tilda
+        self.assertIn("FAQAT xitoy tilida", T._lang_directive("zh"))
         with mock.patch.object(T, "_gc", lambda: self._fake_client("Ответ.", ["customs.uz"])):
             await T._search_answer([], "ru")
         self.assertIn("FAQAT rus tilida", self.last_kw["config"].system_instruction)
@@ -328,8 +368,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_open_question_is_searched_and_filler_callback_runs(self):
         langs: list = []
 
-        async def route(c):
-            return None, "ru"
+        async def route(c, state=None):
+            return None, "ru", ""
 
         async def search(c, lang="uz"):
             return "Найденный ответ."
@@ -344,8 +384,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(langs, ["ru"])
 
     async def test_not_found_gives_honest_message_in_passenger_language(self):
-        async def route(c):
-            return None, "en"
+        async def route(c, state=None):
+            return None, "en", ""
 
         async def search(c, lang="uz"):
             return None
@@ -355,8 +395,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((clip, text), (None, T.NOT_FOUND["en"]))
 
     async def test_search_error_never_invents_an_answer(self):
-        async def route(c):
-            return None, "uz"
+        async def route(c, state=None):
+            return None, "uz", ""
 
         async def search(c, lang="uz"):
             raise RuntimeError("tarmoq")
@@ -368,8 +408,8 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
     async def test_on_search_false_skips_search(self):
         called: list = []
 
-        async def route(c):
-            return None, "uz"
+        async def route(c, state=None):
+            return None, "uz", ""
 
         async def search(c, lang="uz"):
             called.append(1)
@@ -483,13 +523,13 @@ class WebSearchAnswer(unittest.IsolatedAsyncioTestCase):
 
 
 class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
-    """respond(): qidirish paytida to'ldiruvchi gap (faqat savol bo'lsa); xayrlashuv/shovqinda qidirilmaydi."""
+    """respond(): qidirish paytida to'ldiruvchi gap mexanizmi (qidiruv SEARCH_FILLER_DELAY_S dan uzoq cho'zilsa; standart 0 — o'chiq); xayrlashuv/shovqinda qidirilmaydi."""
 
-    async def _run(self, cls_result, route=(None, "uz")):
+    async def _run(self, cls_result, route=(None, "uz", ""), filler_delay=0.01):
         async def fake_classify(part, system=None, kinds=None):
             return cls_result
 
-        async def fake_route(c):
+        async def fake_route(c, state=None):
             return route
 
         async def fake_search(c, lang="uz"):
@@ -509,7 +549,7 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         ws, state = _FakeWS(), {}
         part = T.types.Part.from_bytes(data=b"RIFF....", mime_type="audio/wav")
         with mock.patch.object(T, "_llm_classify", fake_classify), mock.patch.object(T, "_route", fake_route), mock.patch.object(T, "_search_answer", fake_search), \
-                mock.patch.object(T, "cached_audio", fake_cached), mock.patch.object(T, "_deliver", fake_deliver):
+                mock.patch.object(T, "cached_audio", fake_cached), mock.patch.object(T, "_deliver", fake_deliver), mock.patch.object(T, "SEARCH_FILLER_DELAY_S", filler_delay):
             await T.respond(ws, part, [], state, time.monotonic())
         return ws, state, delivered
 
@@ -520,8 +560,15 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(state.get("filler"))
         self.assertFalse(state.get("end"))
 
+    async def test_filler_is_off_by_default(self):
+        """Foydalanuvchi talabi: «Hozir aniqlashtirib beraman» aytilmaydi (SEARCH_FILLER_DELAY_S = 0) — qidiruv sekin bo'lsa ham."""
+        self.assertEqual(T.SEARCH_FILLER_DELAY_S, 0)
+        ws, state, delivered = await self._run(("question", "uz"), filler_delay=0)
+        self.assertEqual(ws.transcripts(), ["Topilgan javob."])
+        self.assertFalse(state.get("filler"))
+
     async def test_filler_uses_passenger_language(self):
-        ws, state, delivered = await self._run(("question", "ru"))
+        ws, state, delivered = await self._run(("question", "ru"), route=(None, "ru", ""))
         self.assertEqual(ws.transcripts()[0], T.SEARCH_FILLER["ru"])
 
     async def test_goodbye_does_not_search(self):
@@ -536,7 +583,7 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(state.get("filler"))
 
     async def test_ready_clip_question_has_no_filler(self):
-        ws, state, delivered = await self._run(("question", "uz"), route=("airport", "uz"))
+        ws, state, delivered = await self._run(("question", "uz"), route=("airport", "uz", ""))
         self.assertFalse(state.get("filler"))
         self.assertEqual(delivered, [T.ANSWER_BY_ID["airport"]["text"]])
 
@@ -544,10 +591,11 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         async def fake_classify(part, system=None, kinds=None):
             return ("question", "uz")
 
-        async def fake_route(c):
-            return None, "uz"
+        async def fake_route(c, state=None):
+            return None, "uz", ""
 
         async def fake_search(c, lang="uz"):
+            await asyncio.sleep(0.05)
             return "Topilgan javob."
 
         async def fake_cached(text):
@@ -560,7 +608,7 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         ws, state = _FakeWS(), {}
         part = T.types.Part.from_bytes(data=b"RIFF....", mime_type="audio/wav")
         with mock.patch.object(T, "_llm_classify", fake_classify), mock.patch.object(T, "_route", fake_route), mock.patch.object(T, "_search_answer", fake_search), \
-                mock.patch.object(T, "cached_audio", fake_cached), mock.patch.object(T, "_deliver", fake_deliver):
+                mock.patch.object(T, "cached_audio", fake_cached), mock.patch.object(T, "_deliver", fake_deliver), mock.patch.object(T, "SEARCH_FILLER_DELAY_S", 0.01):
             started = await T.respond_first(ws, part, [], state, time.monotonic())
         self.assertTrue(started)
         order = [m["type"] if isinstance(m, dict) else "pcm" for m in ws.sent]
@@ -573,9 +621,9 @@ class SearchFillerFlow(unittest.IsolatedAsyncioTestCase):
         async def fake_classify(part, system=None, kinds=None):
             return ("greeting", "uz")
 
-        async def fake_route(c):
+        async def fake_route(c, state=None):
             called.append("route")
-            return None, "uz"
+            return None, "uz", ""
 
         async def fake_search(c, lang="uz"):
             called.append("search")

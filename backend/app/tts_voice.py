@@ -758,8 +758,10 @@ async def _loc(table: dict, lang: str) -> str:
     """Qat'iy matn (salom, xayrlashuv, 'topa olmadim', ...) yo'lovchi tilida. Jadvalda (uz/ru/en) bor bo'lsa — o'sha; aks holda inglizcha matn LLM bilan tarjima qilinadi va xotirada saqlanadi."""
     if lang in table:
         return table[lang]
+    if lang not in LANG_EN:  # noma'lum kod — o'zbekcha
+        return table["uz"]
     base = table.get("en") or table["uz"]
-    if lang == "xx" or lang not in LANG_EN:
+    if lang == "xx":  # ro'yxatda yo'q til — inglizcha
         return base
     key = (base, lang)
     if key in _loc_cache:

@@ -5,3 +5,4 @@ app.db
 .venv/
 venv/
 *.egg-info/
+data/

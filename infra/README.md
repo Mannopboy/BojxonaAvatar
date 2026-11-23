@@ -92,3 +92,12 @@ Backend `GET /api/app/windows/latest` (manifest) va `/api/downloads/<setup>.exe`
 3. Reliz: `curl -X POST "https://bojxona.fintech-company.uz/api/app/windows/release?version=1.0.3&notes=..." -H "X-Admin-Key: $KEY" -H "Content-Type: application/octet-stream" --data-binary @bojxona_gologramma_setup_1.0.3.exe` → `201` + manifest.
 4. Qabul: `curl -s https://bojxona.fintech-company.uz/api/app/windows/latest` (JSON) va `curl -sL <url> | sha256sum` (manifestdagi `sha256` bilan bir xil).
 Yuklash o'rniga qo'lda: fayllarni konteynerga ko'chirish — `docker cp <setup>.exe bojxonaavatar-backend-1:/app/data/releases/files/` so'ng `latest.json` ni `/app/data/releases/` ga (avval `.exe`, keyin manifest).
+
+## Bilim bazasi admin paneli (`/admin`)
+
+- Manzil: `https://bojxona.fintech-company.uz/admin` — kirish `KB_ADMIN_KEY` (faqat `infra/.env` da) bilan. Kalitni ko'rish: `grep '^KB_ADMIN_KEY=' /opt/bojxonaavatar/infra/.env`.
+  Almashtirish: `.env` da qiymatni o'zgartirib `docker compose -f infra/compose.prod.yml up -d backend`.
+- Ma'lumot: **`backend_data` volume → `/app/data/kb/kb.json`** (deploy o'chirmaydi; har yozishda avvalgi nusxa `kb.json.bak`). Birinchi ishga tushishda git'dagi
+  boshlang'ich ma'lumotdan (`backend/app/assets/kb*.json`) quriladi — shundan keyin haqiqat manbai volume. Zaxira nusxa: paneldagi **Eksport** tugmasi.
+- Yangi/tahrirlangan savol 1000 talik baza bilan bir xil tayyorlanadi (qisqa ovozli javob, 12 tilga tarjima, qidiruv indeksi) — saqlash ~10 soniya.
+- Noto'g'ri kalit 8 marta kiritilsa — o'sha IP 10 daqiqaga bloklanadi.

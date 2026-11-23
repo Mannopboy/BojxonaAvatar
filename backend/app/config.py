@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     release_admin_key: str = ""  # POST /app/windows/release uchun X-Admin-Key; bo'sh bo'lsa yuklash O'CHIQ (503). Yo'lovchi reliz yuklay olmasin
     public_base_url: str = ""  # manifest `url` uchun tashqi manzil (bo'sh bo'lsa so'rov sarlavhalaridan: https://<host>)
     audio_cache_dir: str = "data/audio_cache"  # runtime audio keshi (Docker'da /app/data/audio_cache — volume)
+    # Bilim bazasi (admin panel): bitta fayl KB_DIR/kb.json (Docker'da /app/data/kb — volume). Yo'q bo'lsa app/assets dagi boshlang'ich ma'lumotdan quriladi.
+    kb_dir: str = "data/kb"
+    kb_admin_key: str = ""  # /admin/kb/* uchun X-Admin-Key; bo'sh bo'lsa admin panel O'CHIQ (503)
     release_max_mb: int = 300
     release_keep: int = 3  # eng yangi shuncha o'rnatuvchi saqlanadi (har biri ~68 MB)
 
